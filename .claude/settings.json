@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Edit(*)",
+      "Write(*)",
+      "Glob(*)",
+      "Grep(*)"
+    ],
+    "deny": [
+      "Bash(rm *)",
+      "Bash(git push*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)",
+      "Bash(git restore *)",
+      "Bash(git checkout -- *)",
+      "Bash(sudo *)",
+      "Bash(kill *)",
+      "Bash(pkill *)",
+      "Bash(killall *)",
+      "Bash(npm publish*)",
+      "Bash(twine upload*)",
+      "Read(.env*)",
+      "Read(*.pem)",
+      "Read(*.key)",
+      "Read(~/clearml.conf)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash(git commit*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'HOOK: About to commit — have you run the reviewer agent? If not, consider invoking it first.'"
+          }
+        ]
+      }
+    ]
+  }
+}
