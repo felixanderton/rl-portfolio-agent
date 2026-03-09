@@ -37,7 +37,7 @@ from environment import PortfolioEnv
 # ---------------------------------------------------------------------------
 
 # Total environment steps for training
-TOTAL_TIMESTEPS: int = 500_000
+TOTAL_TIMESTEPS: int = 1_500_000
 
 # Number of parallel environments for data collection.
 # Each env steps independently from a different random start, giving
