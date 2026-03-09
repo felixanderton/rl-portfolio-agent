@@ -87,8 +87,12 @@ Val Sharpe by checkpoint:
 
 **Changes**: Pre-warm `_A` and `_B` accumulators at `env.reset()` using the `window` steps of returns already present in the feature matrix prior to the episode start index. No other changes vs H1 baseline.
 
-**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=1, net_arch=[64, 64]`
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=1, eta=0.01, net_arch=[64, 64]`
 
 **Baseline**: val Sharpe 0.5240 (original). Best so far: H1 val Sharpe 0.5344.
 
-**Status**: Re-running — previous Modal container cloned `main` instead of `hypothesis/H4` (branch was never pushed). Branch now pushed; re-submitted on correct branch.
+**Note**: Previous attempt aborted — Modal container cloned `main` instead of `hypothesis/H4`. Branch pushed; re-submitted on correct branch.
+
+**ClearML task ID**: 7b55301a574d440c81552ae927f815fa
+
+**Status**: Running
