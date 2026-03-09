@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import SubprocVecEnv
 
 from baselines import evaluate_portfolio
 from data import TICKERS, load_data
@@ -37,6 +38,11 @@ from environment import PortfolioEnv
 
 # Total environment steps for training
 TOTAL_TIMESTEPS: int = 500_000
+
+# Number of parallel environments for data collection.
+# Each env steps independently from a different random start, giving
+# n_envs * n_steps decorrelated transitions per PPO update.
+N_ENVS: int = 8
 
 # Optional path to a saved model to warm-start from (e.g. "best_model/best_model").
 # If set, loads weights + optimizer state instead of initialising from scratch.
@@ -65,6 +71,13 @@ CLEARML_PROJECT: str = "rl-portfolio-agent"
 # ---------------------------------------------------------------------------
 # Logging setup
 # ---------------------------------------------------------------------------
+
+def _make_env(features: FloatArray, prices: FloatArray, rank: int) -> Monitor:
+    """Factory for SubprocVecEnv — must be module-level to be picklable."""
+    env = PortfolioEnv(features, prices)
+    env.reset(seed=rank)
+    return Monitor(env)
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -462,9 +475,8 @@ def _train_one(
     # ------------------------------------------------------------------
     # 1. Build and wrap the training environment
     # ------------------------------------------------------------------
-    train_env: Monitor = Monitor(
-        PortfolioEnv(train_features, train_prices),
-        filename=None,  # Monitor logs to TensorBoard via SB3 logger; no CSV needed
+    train_env = SubprocVecEnv(
+        [lambda rank=i: _make_env(train_features, train_prices, rank) for i in range(N_ENVS)]
     )
 
     # ------------------------------------------------------------------
@@ -489,7 +501,6 @@ def _train_one(
             learning_rate=cfg.learning_rate,
             n_steps=cfg.n_steps,
             ent_coef=cfg.ent_coef,
-            policy_kwargs=dict(net_arch=[256, 256]),
             tensorboard_log=tensorboard_log_dir,
             verbose=0,
         )

@@ -29,11 +29,13 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 ---
 
 ## H3 — Larger policy network ([64,64] → [256,256])
-**Status**: `[ ]`
+**Status**: `[x]`
 **Hypothesis**: The default SB3 MlpPolicy uses a [64,64] network. With a 116-dimensional observation (20-day return history × 5 assets + vol + meanrev + weights + portfolio vol), the first layer compresses 116 inputs into 64 neurons before any cross-asset interactions can be learned. This is a binding capacity constraint — the policy cannot represent the patterns needed to beat 0.52. Increasing to [256,256] removes this bottleneck.
 **Change**: Pass `policy_kwargs=dict(net_arch=[256, 256])` to the PPO constructor. All other hyperparameters unchanged (`lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000`).
 **Expected effect**: Higher final val Sharpe and smoother training curve as the network learns richer cross-asset representations.
 **Diagnostic**: If val Sharpe improves significantly → capacity was the constraint. If val Sharpe is unchanged or worse → the problem is in the reward signal or data, not network size.
+**Result**: Val Sharpe plateaued at ~0.36 after 500k steps — worse than [64,64] baseline. 2x slower per step.
+**Conclusion**: Inconclusive in isolation. Larger network appears starved of diverse training data with n_envs=1. Shelved pending H5; will retest [256,256] once vectorized envs are in place.
 
 ---
 
@@ -47,7 +49,7 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 ---
 
 ## H5 — Vectorized training (n_envs=1 → n_envs=8)
-**Status**: `[ ]`
+**Status**: `[~]`
 **Hypothesis**: Training on a single environment means every 2048-step rollout is one correlated trajectory from a single random start. The H1 val Sharpe curve oscillates ±0.04 for the last 500k steps — this is gradient variance, not a real plateau. Eight parallel environments with different random start points produce 8× more decorrelated transitions per PPO update, directly reducing gradient variance and smoothing the training signal.
 **Change**: Replace the single `PortfolioEnv` + `Monitor` wrapper with a `make_vec_env` call using `n_envs=8`. Set `n_steps=2048` (per env), giving 16,384 transitions per update vs 2,048 now.
 **Expected effect**: Smoother val Sharpe curve, faster convergence per wall-clock step, and a higher final val Sharpe as the policy escapes the noisy plateau seen in H1.
