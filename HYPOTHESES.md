@@ -78,13 +78,13 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 
 ---
 
-## H8 — Shorter discount horizon (γ 0.99 → 0.9)
+## H8 — Shorter discount horizon (γ 0.99 → 0.9, gae_lambda 0.95 → 0.9)
 **Status**: `[ ]`
-**Hypothesis**: SB3 defaults to γ=0.99, giving high weight to rewards 100+ days in the future. For daily portfolio management, decisions made today primarily affect near-term performance — distant future rewards are speculative. γ=0.9 (used by the JP Morgan paper) focuses learning on a ~10-day effective horizon, which better matches the actual decision timescale of daily rebalancing and should reduce policy variance.
-**Change**: Add `gamma=0.9` to the PPO constructor in `train.py`.
+**Hypothesis**: SB3 defaults to γ=0.99 and gae_lambda=0.95, giving high weight to rewards 100+ days in the future. The JP Morgan paper uses γ=0.9 and gae_lambda=0.9 together — these two parameters jointly define the effective credit horizon. With both set to 0.9, the effective horizon is ~10 trading days, which matches the actual decision timescale of daily rebalancing. Testing γ alone without matching gae_lambda would only capture half the effect.
+**Change**: Add `gamma=0.9, gae_lambda=0.9` to the PPO constructor in `train.py`.
 **Expected effect**: Faster convergence and higher final val Sharpe, as the policy stops chasing distant speculative rewards.
 **Diagnostic**: Monitor rollout/ep_rew_mean in ClearML — it should rise faster in early training.
-**Note**: Source — JP Morgan AI Research, ICAPS FinPlan'23.
+**Note**: Source — JP Morgan AI Research, ICAPS FinPlan'23. γ and gae_lambda are deliberately tested together as a pair.
 
 ---
 
@@ -95,3 +95,13 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 **Expected effect**: Faster early convergence and a smoother plateau — the annealed LR should prevent the ±0.04 oscillation seen in H1 after 1.2M steps.
 **Diagnostic**: Monitor train/learning_rate in ClearML to confirm the schedule is active. Val Sharpe curve should show less oscillation in the final 300k steps.
 **Note**: Source — JP Morgan AI Research, ICAPS FinPlan'23. Run after H5 is confirmed so the vectorised env baseline is stable.
+
+---
+
+## H10 — Align rollout buffer length to trading calendar (n_steps 2048 → 756)
+**Status**: `[ ]`
+**Hypothesis**: Our n_steps=2048 is an arbitrary SB3 default. The JP Morgan paper calibrates n_steps=252×3=756 per environment, so each PPO update trains on exactly 3 months of trading-day transitions. This is semantically grounded — the policy sees a full quarterly cycle per gradient step, which better matches the periodicity of sector rotation. 2048 steps has no such alignment and likely mixes partial market regimes within a single rollout.
+**Change**: Set `N_STEPS = 756` in `train.py`. With n_envs=1, this gives 756 transitions per update (vs 2048 now). If run after H5 (n_envs=8), the buffer becomes 8×756=6048 transitions.
+**Expected effect**: More stable gradient updates and a smoother val Sharpe curve, as each update reflects a coherent market period.
+**Diagnostic**: Monitor rollout/ep_len_mean — episode lengths should now align to ~756 steps. Val Sharpe oscillation should decrease.
+**Note**: Source — JP Morgan AI Research, ICAPS FinPlan'23. Their rollout buffer = n_steps × n_envs = 756 × 10 = 7560 transitions per update.

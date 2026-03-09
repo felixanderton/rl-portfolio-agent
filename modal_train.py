@@ -34,6 +34,7 @@ image = (
 )
 
 REPO_URL = "https://github.com/felixanderton/rl-portfolio-agent"
+BRANCH = "hypothesis/H4"
 
 
 @app.function(
@@ -44,7 +45,7 @@ REPO_URL = "https://github.com/felixanderton/rl-portfolio-agent"
     secrets=[modal.Secret.from_name("clearml-credentials")],
 )
 def train():
-    subprocess.run(["git", "clone", REPO_URL, "/app"], check=True)
+    subprocess.run(["git", "clone", "--branch", BRANCH, REPO_URL, "/app"], check=True)
     os.chdir("/app")
     import sys
     sys.path.insert(0, "/app")

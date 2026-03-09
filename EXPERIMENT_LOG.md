@@ -78,3 +78,17 @@ Val Sharpe by checkpoint:
 **Conclusion**: Disproven. Higher entropy regularisation destabilises the policy rather than helping it explore. The mid-training dip in H1 is likely noise or a natural saddle, not entropy collapse. ENT_COEF reverted to 0.01.
 
 **Status**: Complete (stopped early — disproven)
+
+---
+
+## 2026-03-09 — H4: EMA warm-up at episode start
+
+**Hypothesis**: `_A` and `_B` reset to zero at every `env.reset()`. The differential Sharpe denominator is `(B_prev - A_prev² + eps)^1.5`, which equals `eps^1.5` ≈ 0 for the first ~50-100 steps of each episode while the EMAs accumulate. This produces a degenerate reward signal at the start of every episode. Pre-warming the accumulators from the `window` steps of prior history already available in the feature matrix at `t=start` fixes this, yielding a cleaner reward signal throughout training, faster convergence, and a higher final val Sharpe than H1's 0.5344. The noisiness of the early-episode rewards has been diluting gradient quality across all previous runs.
+
+**Changes**: Pre-warm `_A` and `_B` accumulators at `env.reset()` using the `window` steps of returns already present in the feature matrix prior to the episode start index. No other changes vs H1 baseline.
+
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=1, net_arch=[64, 64]`
+
+**Baseline**: val Sharpe 0.5240 (original). Best so far: H1 val Sharpe 0.5344.
+
+**Status**: Re-running — previous Modal container cloned `main` instead of `hypothesis/H4` (branch was never pushed). Branch now pushed; re-submitted on correct branch.
