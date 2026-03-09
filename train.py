@@ -26,7 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv
 
 from baselines import evaluate_portfolio
 from data import TICKERS, load_data
@@ -475,7 +475,7 @@ def _train_one(
     # ------------------------------------------------------------------
     # 1. Build and wrap the training environment
     # ------------------------------------------------------------------
-    train_env = SubprocVecEnv(
+    train_env = DummyVecEnv(
         [lambda rank=i: _make_env(train_features, train_prices, rank) for i in range(N_ENVS)]
     )
 

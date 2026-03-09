@@ -38,7 +38,7 @@ REPO_URL = "https://github.com/felixanderton/rl-portfolio-agent"
 
 @app.function(
     image=image,
-    cpu=32,
+    cpu=16,
     memory=32768,
     timeout=7200,
     secrets=[modal.Secret.from_name("clearml-credentials")],
