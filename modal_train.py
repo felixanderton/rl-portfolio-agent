@@ -27,8 +27,10 @@ app = modal.App("rl-portfolio-agent")
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("git")
-    .add_local_file("requirements.txt", "/requirements.txt", copy=True)
-    .pip_install_from_requirements("/requirements.txt")
+    .pip_install(
+        "yfinance", "gymnasium", "stable-baselines3[extra]", "torch",
+        "numpy", "pandas", "matplotlib", "seaborn", "tensorboard", "tqdm", "clearml",
+    )
 )
 
 REPO_URL = "https://github.com/felixanderton/rl-portfolio-agent"
