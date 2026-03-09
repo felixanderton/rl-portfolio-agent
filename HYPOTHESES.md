@@ -65,3 +65,33 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 **Expected effect**: Substantial improvement in val Sharpe as the agent learns to exploit multi-horizon momentum and mean-reversion. This addresses a data constraint rather than a training constraint, so the ceiling is higher than H3/H5.
 **Diagnostic**: Monitor per-asset allocation in ClearML — the agent should show stronger momentum-following behaviour (overweighting recent winners) once it can see 60-day signals.
 **Note**: Largest change of the four. Run after H3 and H5 to establish a stable training baseline first.
+
+---
+
+## H7 — Calibrate EMA decay to 1-year window (η 0.01 → 1/252 ≈ 0.004)
+**Status**: `[ ]`
+**Hypothesis**: Our η=0.01 gives the differential Sharpe accumulators a memory of ~100 trading days. The JP Morgan paper (Sood et al., 2025) calibrates η=1/252≈0.004, giving a full 1-year memory window. A longer memory makes A and B more stable estimates of the true mean and variance, producing a smoother and less noisy reward signal. This should reduce gradient variance and improve final val Sharpe.
+**Change**: In `train.py`, change the `eta` argument passed to `PortfolioEnv` from `0.01` to `1/252`.
+**Expected effect**: Smoother reward/mean curve in ClearML, reduced reward/std, higher and more stable val Sharpe.
+**Diagnostic**: Compare reward/std in ClearML vs H1 baseline — it should be lower. Val Sharpe curve should oscillate less.
+**Note**: Source — JP Morgan AI Research, "Deep Reinforcement Learning for Optimal Portfolio Allocation" (ICAPS FinPlan'23). Their setup achieved val Sharpe 1.17.
+
+---
+
+## H8 — Shorter discount horizon (γ 0.99 → 0.9)
+**Status**: `[ ]`
+**Hypothesis**: SB3 defaults to γ=0.99, giving high weight to rewards 100+ days in the future. For daily portfolio management, decisions made today primarily affect near-term performance — distant future rewards are speculative. γ=0.9 (used by the JP Morgan paper) focuses learning on a ~10-day effective horizon, which better matches the actual decision timescale of daily rebalancing and should reduce policy variance.
+**Change**: Add `gamma=0.9` to the PPO constructor in `train.py`.
+**Expected effect**: Faster convergence and higher final val Sharpe, as the policy stops chasing distant speculative rewards.
+**Diagnostic**: Monitor rollout/ep_rew_mean in ClearML — it should rise faster in early training.
+**Note**: Source — JP Morgan AI Research, ICAPS FinPlan'23.
+
+---
+
+## H9 — Learning rate annealing (fixed 1e-4 → 3e-4 annealed to 1e-5)
+**Status**: `[ ]`
+**Hypothesis**: A fixed learning rate of 1e-4 is a compromise — too large late in training (causes instability past 1M steps as seen in H1's plateau oscillation) and potentially too small early (slows initial convergence). The JP Morgan paper uses 3e-4 annealed linearly to 1e-5, allowing fast early exploration followed by precise fine-tuning. This matches the natural learning curve of PPO better than a fixed rate.
+**Change**: Replace `learning_rate=LR` with a linear schedule in the PPO constructor: `learning_rate=linear_schedule(3e-4, 1e-5)`. Add the `linear_schedule` helper (standard SB3 pattern).
+**Expected effect**: Faster early convergence and a smoother plateau — the annealed LR should prevent the ±0.04 oscillation seen in H1 after 1.2M steps.
+**Diagnostic**: Monitor train/learning_rate in ClearML to confirm the schedule is active. Val Sharpe curve should show less oscillation in the final 300k steps.
+**Note**: Source — JP Morgan AI Research, ICAPS FinPlan'23. Run after H5 is confirmed so the vectorised env baseline is stable.
