@@ -42,7 +42,7 @@ TOTAL_TIMESTEPS: int = 1_500_000
 # Number of parallel environments for data collection.
 # Each env steps independently from a different random start, giving
 # n_envs * n_steps decorrelated transitions per PPO update.
-N_ENVS: int = 8
+N_ENVS: int = 1
 
 # Optional path to a saved model to warm-start from (e.g. "best_model/best_model").
 # If set, loads weights + optimizer state instead of initialising from scratch.
