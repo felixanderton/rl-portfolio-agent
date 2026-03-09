@@ -36,7 +36,7 @@ from environment import PortfolioEnv
 # ---------------------------------------------------------------------------
 
 # Total environment steps for training
-TOTAL_TIMESTEPS: int = 1_500_000
+TOTAL_TIMESTEPS: int = 500_000
 
 # Optional path to a saved model to warm-start from (e.g. "best_model/best_model").
 # If set, loads weights + optimizer state instead of initialising from scratch.
@@ -489,6 +489,7 @@ def _train_one(
             learning_rate=cfg.learning_rate,
             n_steps=cfg.n_steps,
             ent_coef=cfg.ent_coef,
+            policy_kwargs=dict(net_arch=[256, 256]),
             tensorboard_log=tensorboard_log_dir,
             verbose=0,
         )
