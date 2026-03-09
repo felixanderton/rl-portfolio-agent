@@ -78,3 +78,24 @@ Val Sharpe by checkpoint:
 **Conclusion**: Disproven. Higher entropy regularisation destabilises the policy rather than helping it explore. The mid-training dip in H1 is likely noise or a natural saddle, not entropy collapse. ENT_COEF reverted to 0.01.
 
 **Status**: Complete (stopped early — disproven)
+
+---
+
+## 2026-03-09 — H11: Expand asset universe (5 sector ETFs -> 9 multi-asset ETFs)
+
+**Hypothesis**: Adding uncorrelated assets (TLT, GLD, EFA, EEM) to the 5-sector ETF universe gives the agent a materially higher Sharpe ceiling. During equity drawdowns the agent can rotate into bonds and gold, which the current 5-ETF universe cannot do. The diversification benefit should far outweigh the reduction in training rows caused by the GLD launch date constraint.
+
+**Changes**:
+- `data.py`: TICKERS expanded from `["XLK","XLE","XLF","XLV","XLI"]` to `["XLK","XLE","XLF","XLV","XLI","TLT","GLD","EFA","EEM"]`. TRAIN_START shifted from `"2000-01-01"` to `"2005-01-01"` (GLD launch constraint).
+- `environment.py`: N_ASSETS no longer hardcoded as 5 — now derived from `prices.shape[1]` in `__init__`, so observation/action spaces auto-scale.
+- `train.py`: Fixed class-attribute reference `PortfolioEnv.N_ASSETS` -> `len(TICKERS)` in the fallback default.
+
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, eta=0.01 (default), net_arch=[64,64]`
+
+**Baseline**: val Sharpe 0.5240 (original). Best so far: H1 val Sharpe 0.5344.
+
+**Note**: Training data reduced from ~3750 rows (2000-2014) to ~2500 rows (2005-2014) due to GLD launch date, but the cross-asset diversification benefit should far outweigh the data reduction.
+
+**ClearML task ID**: TBD
+
+**Status**: Running
