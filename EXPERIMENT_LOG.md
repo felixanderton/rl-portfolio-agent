@@ -93,6 +93,20 @@ Val Sharpe by checkpoint:
 
 **Note**: Previous attempt aborted — Modal container cloned `main` instead of `hypothesis/H4`. Branch pushed; re-submitted on correct branch.
 
-**ClearML task ID**: 7b55301a574d440c81552ae927f815fa
+**ClearML task ID**: 3271ab33625146a9b133d51f0062e730
 
-**Status**: Running
+**Results**: Final (saved) val Sharpe 0.5002. Peak val Sharpe 0.5678 at step 1,000,000.
+
+Val Sharpe by checkpoint:
+- 50k: 0.4048, 100k: 0.4120, 150k: 0.4790, 200k: 0.4493, 250k: 0.4718
+- 300k: 0.4389, 350k: 0.4634, 400k: 0.4606, 450k: 0.4496, 500k: 0.4721
+- 550k: 0.5330, 600k: 0.5452, 650k: 0.5155, 700k: 0.5577, 750k: 0.5409
+- 800k: 0.5205, 850k: 0.5382, 900k: 0.5104, 950k: 0.5392, 1.0M: 0.5678
+- 1.05M: 0.5645, 1.1M: 0.5363, 1.15M: 0.5184, 1.2M: 0.5224, 1.25M: 0.5173
+- 1.3M: 0.4846, 1.35M: 0.4885, 1.4M: 0.4944, 1.45M: 0.4922, 1.5M: 0.5001
+
+**vs Baseline**: worse than H1 (0.5344) by 0.0342 (-6.4%). Worse than original baseline (0.5240) by 0.0238 (-4.5%).
+
+**Conclusion**: Disproven. EMA warm-up hurt rather than helped — final val Sharpe 0.5002 vs H1's 0.5344, a -6% regression. The policy peaked at 0.5678 at step 1M then degraded significantly through 1.5M steps, a pattern not seen in H1. This suggests the warm-up may be introducing a subtle bias: by pre-loading accumulators with equal-weight returns from the prior window (before any learned allocation), the initial reward signal may overweight a regime the policy hasn't yet adapted to. Alternatively, the warm-up reduces early-episode exploration variance that was actually beneficial. The degenerate reward at episode start (the problem H4 aimed to fix) appears less harmful than assumed. Reverted.
+
+**Status**: Complete
