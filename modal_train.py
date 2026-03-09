@@ -29,7 +29,7 @@ image = (
     .apt_install("git")
     .pip_install(
         "yfinance", "gymnasium", "stable-baselines3[extra]", "torch",
-        "numpy", "pandas", "matplotlib", "seaborn", "tensorboard", "tqdm", "clearml",
+        "numpy", "pandas", "matplotlib", "seaborn", "tensorboard", "tqdm", "clearml", "pydantic",
     )
 )
 
@@ -46,7 +46,10 @@ REPO_URL = "https://github.com/felixanderton/rl-portfolio-agent"
 def train():
     subprocess.run(["git", "clone", REPO_URL, "/app"], check=True)
     os.chdir("/app")
-    subprocess.run(["python", "train.py"], check=True)
+    import sys
+    sys.path.insert(0, "/app")
+    from train import main
+    main()
 
 
 @app.local_entrypoint()
