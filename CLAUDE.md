@@ -38,5 +38,3 @@
 - ClearML project name: `rl-portfolio-agent`
 - Invoke `ml-tracker` agent before and after each training run
 - All experiments must have an entry in `EXPERIMENT_LOG.md`
-
-> Setup note: ClearML has not been initialised yet. Invoke `ml-setup` to complete ML setup.

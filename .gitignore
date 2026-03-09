@@ -1,0 +1,17 @@
+# Credentials — never commit
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Training outputs
+best_model/
+checkpoints/
+logs/
+*.zip
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/

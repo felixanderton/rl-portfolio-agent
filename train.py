@@ -1,0 +1,590 @@
+"""
+train.py — PPO training with TensorBoard logging and checkpointing.
+
+Trains a single PPO agent on the training split, evaluates on the validation
+split, and saves the best model checkpoint.
+
+Usage:
+    python train.py
+    # or via the project venv:
+    .venv/bin/python train.py
+"""
+
+from __future__ import annotations
+
+import io
+import logging
+import math
+from pathlib import Path
+from typing import Any, override
+
+import matplotlib.pyplot as plt
+import numpy as np
+import numpy.typing as npt
+from clearml import Task
+from pydantic import BaseModel, ConfigDict, Field
+from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
+from stable_baselines3.common.monitor import Monitor
+
+from baselines import evaluate_portfolio
+from data import TICKERS, load_data
+from environment import PortfolioEnv
+
+# ---------------------------------------------------------------------------
+# Module-level constants — change here to retrain with different settings
+# ---------------------------------------------------------------------------
+
+# Total environment steps for training
+TOTAL_TIMESTEPS: int = 1_500_000
+
+# Optional path to a saved model to warm-start from (e.g. "best_model/best_model").
+# If set, loads weights + optimizer state instead of initialising from scratch.
+# Set to None to train from random initialisation.
+WARM_START_PATH: str | None = None
+
+# How often (in steps) to save a model checkpoint
+CHECKPOINT_FREQ: int = 50_000
+
+# Hyperparameters — chosen by the user based on validation results
+LEARNING_RATE: float = 1e-4
+N_STEPS: int = 2048
+ENT_COEF: float = 0.01
+
+# Annualisation factor for Sharpe computation inside the callback
+TRADING_DAYS_PER_YEAR: int = 252
+
+# Root directories for TensorBoard logs and checkpoints
+LOG_DIR: Path = Path("logs")
+CHECKPOINT_DIR: Path = Path("checkpoints")
+BEST_MODEL_DIR: Path = Path("best_model")
+
+# ClearML project name — must match the project created by ml-setup
+CLEARML_PROJECT: str = "rl-portfolio-agent"
+
+# ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Type aliases
+# ---------------------------------------------------------------------------
+
+type FloatArray = npt.NDArray[np.float32]
+
+# ---------------------------------------------------------------------------
+# Config model — one instance per hyperparameter combination
+# ---------------------------------------------------------------------------
+
+
+class RunConfig(BaseModel):
+    """Immutable config for a single training run."""
+
+    model_config = ConfigDict(frozen=True)
+
+    learning_rate: float = Field(gt=0, description="Adam learning rate")
+    n_steps: int = Field(ge=1, description="PPO rollout buffer length in steps")
+    ent_coef: float = Field(ge=0, description="Entropy regularisation coefficient")
+
+    @property
+    def run_name(self) -> str:
+        """Canonical name used for checkpoint and TensorBoard directories."""
+        return f"lr{self.learning_rate}_steps{self.n_steps}_ent{self.ent_coef}"
+
+
+# ---------------------------------------------------------------------------
+# Custom training callback
+# ---------------------------------------------------------------------------
+
+
+class TrainingCallback(BaseCallback):
+    """
+    Per-episode metric logger for ClearML and TensorBoard.
+
+    At every step collects portfolio_return, transaction_cost, and weights
+    from info. At episode end logs:
+      - Sharpe, turnover, reward stats (mean/std/min/max)
+      - Weight entropy (policy concentration)
+      - Per-asset mean allocation
+      - Gross return vs transaction cost drag
+    """
+
+    # Small epsilon to avoid log(0) in entropy calculation
+    _ENTROPY_EPS: float = 1e-8
+
+    def __init__(self, task: Task, verbose: int = 0) -> None:
+        super().__init__(verbose=verbose)
+        self._task = task
+        self._episode_returns: list[float] = []
+        self._episode_costs: list[float] = []
+        self._episode_weights: list[FloatArray] = []
+        self._episode_weight_changes: list[float] = []
+        self._prev_weights: FloatArray | None = None
+        self._episode_count: int = 0
+
+    @override
+    def _on_step(self) -> bool:
+        infos: list[dict[str, Any]] = self.locals.get("infos", [{}])
+        dones: list[bool] = self.locals.get("dones", [False])
+
+        for i, info in enumerate(infos):
+            ret: float = float(info.get("portfolio_return", 0.0))
+            cost: float = float(info.get("transaction_cost", 0.0))
+            weights: FloatArray = info.get(
+                "weights", np.full(PortfolioEnv.N_ASSETS, 1.0 / PortfolioEnv.N_ASSETS)
+            )
+
+            self._episode_returns.append(ret)
+            self._episode_costs.append(cost)
+            self._episode_weights.append(weights.copy())
+
+            if self._prev_weights is not None:
+                self._episode_weight_changes.append(
+                    float(np.sum(np.abs(weights - self._prev_weights)))
+                )
+            self._prev_weights = weights.copy()
+
+            if dones[i]:
+                self._log_episode_metrics()
+                self._reset_episode()
+
+        return True
+
+    def _log_episode_metrics(self) -> None:
+        if len(self._episode_returns) < 2:
+            return
+
+        n = self.num_timesteps  # x-axis for ClearML scalars
+        cl = self._task.get_logger()
+
+        returns = np.array(self._episode_returns, dtype=np.float64)
+        weights_arr = np.stack(self._episode_weights)  # (T, N)
+
+        # --- Sharpe ---
+        std = float(returns.std(ddof=1))
+        sharpe = (float(returns.mean()) / std * math.sqrt(TRADING_DAYS_PER_YEAR)
+                  if std > 0.0 else 0.0)
+
+        # --- Reward distribution ---
+        reward_mean = float(returns.mean())
+        reward_std = float(returns.std(ddof=1))
+        reward_min = float(returns.min())
+        reward_max = float(returns.max())
+
+        # --- Turnover ---
+        turnover = float(np.mean(self._episode_weight_changes)) if self._episode_weight_changes else 0.0
+
+        # --- Weight entropy: -sum(w * log(w)), averaged over episode steps ---
+        # High entropy ≈ equal weight (not learning to differentiate assets)
+        # Low entropy ≈ concentrated (potentially overfit to one asset)
+        entropy_per_step = -np.sum(
+            weights_arr * np.log(weights_arr + self._ENTROPY_EPS), axis=1
+        )
+        mean_entropy = float(entropy_per_step.mean())
+
+        # --- Per-asset mean allocation ---
+        mean_weights = weights_arr.mean(axis=0)  # shape (N,)
+
+        # --- Transaction cost drag vs gross return ---
+        gross_return = float(returns.mean())
+        mean_cost = float(np.mean(self._episode_costs))
+
+        # Log to TensorBoard (mirrored to ClearML automatically)
+        self.logger.record("train/episode_sharpe", sharpe)
+        self.logger.record("train/episode_turnover", turnover)
+        self.logger.record("train/reward_mean", reward_mean)
+        self.logger.record("train/reward_std", reward_std)
+        self.logger.record("train/weight_entropy", mean_entropy)
+        self.logger.record("train/cost_drag", mean_cost)
+
+        # Explicitly log to ClearML for richer grouping
+        for title, series, value in [
+            ("reward", "mean", reward_mean),
+            ("reward", "std", reward_std),
+            ("reward", "min", reward_min),
+            ("reward", "max", reward_max),
+            ("policy", "sharpe", sharpe),
+            ("policy", "turnover", turnover),
+            ("policy", "weight_entropy", mean_entropy),
+            ("costs", "mean_tx_cost_per_step", mean_cost),
+            ("costs", "gross_return_per_step", gross_return),
+        ]:
+            cl.report_scalar(title=title, series=series, value=value, iteration=n)
+
+        # Per-asset mean allocation as individual series
+        for ticker, w in zip(TICKERS, mean_weights):
+            cl.report_scalar(
+                title="asset_allocation", series=ticker, value=float(w), iteration=n
+            )
+
+        self._episode_count += 1
+
+    def _reset_episode(self) -> None:
+        self._episode_returns = []
+        self._episode_costs = []
+        self._episode_weights = []
+        self._episode_weight_changes = []
+        self._prev_weights = None
+
+
+# ---------------------------------------------------------------------------
+# Periodic validation callback — logs val Sharpe at each checkpoint
+# ---------------------------------------------------------------------------
+
+
+class PeriodicValCallback(BaseCallback):
+    """
+    Runs a deterministic validation episode every `eval_freq` steps and logs
+    val Sharpe to ClearML. This creates a train-vs-val Sharpe curve so you
+    can see when overfitting begins.
+    """
+
+    def __init__(
+        self,
+        val_features: FloatArray,
+        val_prices: FloatArray,
+        task: Task,
+        eval_freq: int = CHECKPOINT_FREQ,
+        verbose: int = 0,
+    ) -> None:
+        super().__init__(verbose=verbose)
+        self._val_features = val_features
+        self._val_prices = val_prices
+        self._task = task
+        self._eval_freq = eval_freq
+
+    @override
+    def _on_step(self) -> bool:
+        if self.num_timesteps % self._eval_freq == 0:
+            val_sharpe = _run_validation_sharpe(
+                self.model, self._val_features, self._val_prices  # type: ignore[arg-type]
+            )
+            self._task.get_logger().report_scalar(
+                title="validation", series="sharpe_ratio",
+                value=val_sharpe, iteration=self.num_timesteps,
+            )
+            logger.info(f"  [step {self.num_timesteps:>7}]  val Sharpe = {val_sharpe:.4f}")
+        return True
+
+
+# ---------------------------------------------------------------------------
+# Validation helper
+# ---------------------------------------------------------------------------
+
+
+def _rollout(
+    model: PPO,
+    features: FloatArray,
+    prices: FloatArray,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """
+    Run a deterministic episode from the earliest valid timestep.
+
+    Returns (weights_arr, prices_arr) aligned for evaluate_portfolio:
+    weights_arr[i] earns log(prices_arr[i] / prices_arr[i-1]), row 0 is a
+    dummy anchor.
+    """
+    _, N = prices.shape
+    env = PortfolioEnv(features, prices)
+    obs, _ = env.reset(seed=0)
+    env._t = env._window  # type: ignore[attr-defined]
+    obs = env._get_obs()  # type: ignore[attr-defined]
+
+    current_t: int = env._window  # type: ignore[attr-defined]
+    step_prices: list[FloatArray] = [prices[current_t]]
+    weights_list: list[FloatArray] = [np.full(N, 1.0 / N, dtype=np.float32)]
+
+    done = False
+    while not done:
+        action, _ = model.predict(obs, deterministic=True)
+        obs, _reward, terminated, truncated, info = env.step(action)
+        done = terminated or truncated
+        current_t += 1
+        weights_list.append(info["weights"])
+        step_prices.append(prices[current_t])
+
+    weights_arr = np.stack(weights_list).astype(np.float64)
+    prices_arr = np.stack(step_prices).astype(np.float64)
+    return weights_arr, prices_arr
+
+
+def _run_validation_sharpe(
+    model: PPO,
+    val_features: FloatArray,
+    val_prices: FloatArray,
+) -> float:
+    """Lightweight helper used by PeriodicValCallback during training."""
+    weights_arr, prices_arr = _rollout(model, val_features, val_prices)
+    if len(weights_arr) < 2:
+        return 0.0
+    return float(evaluate_portfolio(prices_arr, weights_arr)["sharpe_ratio"])
+
+
+def run_validation(
+    model: PPO,
+    val_features: FloatArray,
+    val_prices: FloatArray,
+    task: Task,
+) -> dict[str, float]:
+    """
+    Full post-training validation: runs the deterministic policy on the val
+    split, logs all metrics and plots to ClearML, and returns the metrics dict.
+    """
+    weights_arr, prices_arr = _rollout(model, val_features, val_prices)
+
+    if len(weights_arr) < 2:
+        logger.warning("Validation episode was too short.")
+        return {}
+
+    metrics = evaluate_portfolio(prices_arr, weights_arr)
+    cl = task.get_logger()
+
+    # --- Scalar metrics ---
+    final_step = len(weights_arr)
+    for key, value in metrics.items():
+        if value != float("inf"):
+            cl.report_scalar(
+                title="validation_final", series=key, value=value, iteration=final_step
+            )
+
+    # --- Weight allocation heatmap (assets × time) ---
+    fig, ax = plt.subplots(figsize=(14, 3))
+    im = ax.imshow(
+        weights_arr[1:].T,  # skip anchor row; shape (N, T)
+        aspect="auto", vmin=0, vmax=1, cmap="YlOrRd",
+    )
+    ax.set_yticks(range(len(TICKERS)))
+    ax.set_yticklabels(TICKERS)
+    ax.set_xlabel("Validation step")
+    ax.set_title("Agent weight allocation over validation period")
+    fig.colorbar(im, ax=ax, label="Weight")
+    fig.tight_layout()
+    cl.report_matplotlib_figure(
+        title="validation_plots", series="weight_heatmap",
+        figure=fig, iteration=final_step,
+    )
+    plt.close(fig)
+
+    # --- Per-asset allocation histogram ---
+    fig, ax = plt.subplots(figsize=(7, 4))
+    mean_w = weights_arr[1:].mean(axis=0)
+    ax.bar(TICKERS, mean_w)
+    ax.set_ylabel("Mean weight")
+    ax.set_title("Mean portfolio allocation over validation period")
+    ax.set_ylim(0, 1)
+    for i, v in enumerate(mean_w):
+        ax.text(i, v + 0.01, f"{v:.2f}", ha="center", fontsize=9)
+    fig.tight_layout()
+    cl.report_matplotlib_figure(
+        title="validation_plots", series="mean_allocation",
+        figure=fig, iteration=final_step,
+    )
+    plt.close(fig)
+
+    # --- Cumulative portfolio value ---
+    log_rets = np.log(prices_arr[1:] / prices_arr[:-1])
+    port_rets = np.sum(weights_arr[1:] * log_rets, axis=1)
+    cum_value = np.exp(np.cumsum(port_rets))
+    fig, ax = plt.subplots(figsize=(12, 4))
+    ax.plot(cum_value)
+    ax.axhline(1.0, color="grey", linewidth=0.8, linestyle="--")
+    ax.set_xlabel("Validation step")
+    ax.set_ylabel("Portfolio value (normalised to 1.0)")
+    ax.set_title("Cumulative portfolio value — validation period")
+    fig.tight_layout()
+    cl.report_matplotlib_figure(
+        title="validation_plots", series="cumulative_value",
+        figure=fig, iteration=final_step,
+    )
+    plt.close(fig)
+
+    return metrics
+
+
+# ---------------------------------------------------------------------------
+# Training loop for a single hyperparameter combination
+# ---------------------------------------------------------------------------
+
+
+def _train_one(
+    cfg: RunConfig,
+    train_features: FloatArray,
+    train_prices: FloatArray,
+    val_features: FloatArray,
+    val_prices: FloatArray,
+) -> tuple[PPO, float]:
+    """
+    Train a PPO agent for one hyperparameter combination.
+
+    Creates the environment, wraps it with Monitor, creates the PPO model,
+    attaches checkpointing and custom callbacks, trains, then evaluates on
+    the validation set.
+
+    Parameters
+    ----------
+    cfg:
+        Immutable run configuration.
+    train_features, train_prices:
+        Training split arrays.
+    val_features, val_prices:
+        Validation split arrays.
+
+    Returns
+    -------
+    Trained PPO model and its validation Sharpe ratio.
+    """
+    logger.info(f"Starting run: {cfg.run_name}")
+
+    # ------------------------------------------------------------------
+    # 0. Initialise ClearML task
+    #
+    # Task.init() must be called before model.learn() so that ClearML can
+    # intercept the TensorBoard logger and mirror all SB3 metrics (episode
+    # reward, episode_sharpe, episode_turnover) to the ClearML dashboard.
+    # Each hyperparameter combination gets its own task so runs are
+    # independently comparable in the ClearML UI.
+    # ------------------------------------------------------------------
+    task = Task.init(
+        project_name=CLEARML_PROJECT,
+        task_name=cfg.run_name,
+        reuse_last_task_id=False,
+    )
+    # Log the hyperparameters so they appear in the ClearML HP panel
+    task.connect(cfg.model_dump(), name="hyperparameters")
+
+    # ------------------------------------------------------------------
+    # 1. Build and wrap the training environment
+    # ------------------------------------------------------------------
+    train_env: Monitor = Monitor(
+        PortfolioEnv(train_features, train_prices),
+        filename=None,  # Monitor logs to TensorBoard via SB3 logger; no CSV needed
+    )
+
+    # ------------------------------------------------------------------
+    # 2. Create the PPO model
+    # ------------------------------------------------------------------
+    tensorboard_log_dir = str(LOG_DIR / cfg.run_name)
+
+    if WARM_START_PATH is not None:
+        model = PPO.load(
+            WARM_START_PATH,
+            env=train_env,
+            tensorboard_log=tensorboard_log_dir,
+        )
+        model.learning_rate = cfg.learning_rate
+        model.n_steps = cfg.n_steps
+        model.ent_coef = cfg.ent_coef
+        logger.info(f"Warm-starting from {WARM_START_PATH}")
+    else:
+        model = PPO(
+            policy="MlpPolicy",
+            env=train_env,
+            learning_rate=cfg.learning_rate,
+            n_steps=cfg.n_steps,
+            ent_coef=cfg.ent_coef,
+            tensorboard_log=tensorboard_log_dir,
+            verbose=0,
+        )
+
+    # ------------------------------------------------------------------
+    # 3. Build callbacks
+    # ------------------------------------------------------------------
+    checkpoint_path = CHECKPOINT_DIR / cfg.run_name
+    checkpoint_path.mkdir(parents=True, exist_ok=True)
+
+    checkpoint_cb = CheckpointCallback(
+        save_freq=CHECKPOINT_FREQ,
+        save_path=str(checkpoint_path),
+        name_prefix="ppo_checkpoint",
+        verbose=0,
+    )
+    training_cb = TrainingCallback(task=task, verbose=0)
+    val_cb = PeriodicValCallback(
+        val_features=val_features,
+        val_prices=val_prices,
+        task=task,
+        eval_freq=CHECKPOINT_FREQ,
+    )
+
+    # ------------------------------------------------------------------
+    # 4. Train
+    # ------------------------------------------------------------------
+    model.learn(
+        total_timesteps=TOTAL_TIMESTEPS,
+        callback=[checkpoint_cb, training_cb, val_cb],
+        tb_log_name="run",
+        reset_num_timesteps=True,
+        progress_bar=True,
+    )
+
+    # ------------------------------------------------------------------
+    # 5. Full post-training validation — logs all metrics + plots
+    # ------------------------------------------------------------------
+    metrics = run_validation(model, val_features, val_prices, task)
+    val_sharpe = float(metrics.get("sharpe_ratio", 0.0))
+    logger.info(f"  {cfg.run_name}  val Sharpe = {val_sharpe:.4f}")
+
+    # Save and upload model artifact on the same task — no separate task needed
+    BEST_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    save_path = BEST_MODEL_DIR / "best_model"
+    model.save(str(save_path))
+    task.upload_artifact(
+        name="best_model",
+        artifact_object=save_path.with_suffix(".zip"),
+    )
+
+    task.close()
+    return model, val_sharpe
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    """
+    Train a single PPO agent, evaluate on validation, and save the model.
+    """
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    BEST_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+    # ------------------------------------------------------------------
+    # 1. Load data
+    # ------------------------------------------------------------------
+    logger.info("Loading data ...")
+    data = load_data()
+
+    train_features: FloatArray = data["train"]
+    train_prices: FloatArray = data["train_prices"]
+    val_features: FloatArray = data["val"]
+    val_prices: FloatArray = data["val_prices"]
+
+    # ------------------------------------------------------------------
+    # 2. Build config from module-level constants
+    # ------------------------------------------------------------------
+    cfg = RunConfig.model_validate(
+        {"learning_rate": LEARNING_RATE, "n_steps": N_STEPS, "ent_coef": ENT_COEF}
+    )
+
+    # ------------------------------------------------------------------
+    # 3. Train
+    # ------------------------------------------------------------------
+    model, val_sharpe = _train_one(
+        cfg, train_features, train_prices, val_features, val_prices
+    )
+
+    logger.info(f"Model saved to {BEST_MODEL_DIR / 'best_model'}  (val_sharpe={val_sharpe:.4f})")
+    print(f"\nVal Sharpe: {val_sharpe:.4f}")
+    print(f"Model saved to {BEST_MODEL_DIR / 'best_model'}\n")
+
+
+if __name__ == "__main__":
+    main()
