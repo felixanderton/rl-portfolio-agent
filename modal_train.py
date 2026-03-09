@@ -25,7 +25,7 @@ app = modal.App("rl-portfolio-agent")
 # requirements.txt is copied in so the pip layer is invalidated only when
 # dependencies change, not on every code edit.
 image = (
-    modal.Image.debian_slim(python_version="3.11")
+    modal.Image.debian_slim(python_version="3.12")
     .apt_install("git")
     .pip_install(
         "yfinance", "gymnasium", "stable-baselines3[extra]", "torch",
