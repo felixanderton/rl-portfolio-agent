@@ -96,6 +96,20 @@ Val Sharpe by checkpoint:
 
 **Note**: Training data reduced from ~3750 rows (2000-2014) to ~2500 rows (2005-2014) due to GLD launch date, but the cross-asset diversification benefit should far outweigh the data reduction.
 
-**ClearML task ID**: TBD
+**Results**: Final val Sharpe 0.3687. Peak val Sharpe 0.4482 at step 950,000.
 
-**Status**: Running
+Val Sharpe by checkpoint:
+- 50k: 0.3092, 100k: 0.3121, 150k: 0.3181, 200k: 0.3259, 250k: 0.3510
+- 300k: 0.3611, 350k: 0.3876, 400k: 0.3845, 450k: 0.4041, 500k: 0.3883
+- 550k: 0.4276, 600k: 0.4143, 650k: 0.4264, 700k: 0.4220, 750k: 0.4370
+- 800k: 0.4328, 850k: 0.3996, 900k: 0.4155, 950k: 0.4482, 1.0M: 0.4343
+- 1.05M: 0.4256, 1.1M: 0.4352, 1.15M: 0.4346, 1.2M: 0.4424, 1.25M: 0.3917
+- 1.3M: 0.3718, 1.35M: 0.3599, 1.4M: 0.3887, 1.45M: 0.3537, 1.5M: 0.3687
+
+**vs Baseline**: worse by 0.1657 (-31% vs H1 val Sharpe 0.5344)
+
+**Conclusion**: Inconclusive — asset universe expansion hurt in isolation at 1.5M steps. The observation space grew from 116 to 208 inputs while training data shrank from 3753 to 2497 rows (GLD constraint), making the learning problem harder without more compute. The policy shows a clear rise-then-collapse pattern peaking at 950k: the agent appears to start learning cross-asset dynamics but the gradient signal is too noisy to sustain convergence. The code infrastructure change (N_ASSETS derived from data rather than hardcoded) is a clean improvement regardless of this result. Revisiting with 3M+ steps or a later TRAIN_START that avoids the GLD data loss is warranted before concluding the multi-asset approach is wrong.
+
+**ClearML task ID**: e6927b3c32a04883a9299b712660ce0b
+
+**Status**: Complete

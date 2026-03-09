@@ -65,3 +65,12 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 **Expected effect**: Substantial improvement in val Sharpe as the agent learns to exploit multi-horizon momentum and mean-reversion. This addresses a data constraint rather than a training constraint, so the ceiling is higher than H3/H5.
 **Diagnostic**: Monitor per-asset allocation in ClearML — the agent should show stronger momentum-following behaviour (overweighting recent winners) once it can see 60-day signals.
 **Note**: Largest change of the four. Run after H3 and H5 to establish a stable training baseline first.
+
+---
+
+## H11 — Expand asset universe (5 sector ETFs → 9 multi-asset ETFs)
+**Status**: `[x]`
+**Hypothesis**: All 5 current assets (XLK, XLE, XLF, XLV, XLI) are US equity sector ETFs — they are highly correlated and collapse together in risk-off environments. Adding TLT (long-term Treasuries), GLD (gold), EFA (international developed), and EEM (emerging markets) introduces genuinely uncorrelated return streams. The Sharpe ratio of the combined portfolio is fundamentally bounded by constituent correlations; with cross-asset diversification, the achievable Sharpe ceiling rises substantially. This is a change to the problem formulation, not a hyperparameter tweak. TRAIN_START shifts to 2005-01-01 (GLD constraint), reducing training data from ~3750 to ~2500 rows but gaining 4 uncorrelated asset classes.
+**Change**: In `data.py`, update `TICKERS` to include TLT, GLD, EFA, EEM and set `TRAIN_START = "2005-01-01"`. In `environment.py`, derive `N_ASSETS` from `prices.shape[1]` rather than hardcoding 5. All observation/action space sizes update automatically.
+**Expected effect**: Substantially higher val Sharpe as the agent learns to rotate into bonds and gold during equity drawdowns. This addresses the fundamental ceiling on the achievable Sharpe, not a training constraint.
+**Diagnostic**: Monitor per-asset allocation in ClearML — the agent should show meaningful TLT/GLD allocation during stress periods. Val Sharpe should materially exceed H1's 0.5344.
