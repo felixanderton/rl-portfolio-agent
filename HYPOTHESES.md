@@ -40,11 +40,13 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 ---
 
 ## H4 — Fix EMA warm-up at episode start
-**Status**: `[~]`
+**Status**: `[x]`
 **Hypothesis**: `_A` and `_B` reset to zero at every `env.reset()`. The differential Sharpe denominator is `(B_prev - A_prev² + eps)^1.5`, which equals `eps^1.5` ≈ 0 for the first ~50-100 steps of each episode while the EMAs accumulate. This produces a degenerate reward signal at the start of every episode, poisoning a large fraction of the training data. Pre-warming the accumulators from the `window` steps of prior history already available in the feature matrix at `t=start` would make every step of every episode produce a valid reward.
 **Change**: In `PortfolioEnv.reset()`, after sampling `_t`, compute `_A` and `_B` by running a forward pass over `features[_t-window:_t]` log-return columns using the EMA update rule before returning the first observation.
 **Expected effect**: Cleaner reward signal throughout training, faster convergence, and higher final val Sharpe. The noisiness of the early-episode rewards has been diluting gradient quality across all of H1 and H2.
 **Diagnostic**: Monitor reward/mean in ClearML — it should show a higher mean early in episodes. Val Sharpe curve should be less jagged.
+**Result**: Final val Sharpe 0.6444. Peak 0.6564 at step 1,350,000. Clear acceleration after 950k steps (0.47 → 0.66 range). +20.6% vs H1 (0.5344). Now exceeds the momentum baseline on validation data.
+**Conclusion**: Both fixes confirmed effective. The action space change unlocked concentrated positions; EMA warm-up eliminated degenerate early-episode rewards. H4 is the new best result and confirmed baseline for subsequent hypotheses. ClearML task ID: 06032dcd5f1947db86a11aa2450aa620.
 
 ---
 
