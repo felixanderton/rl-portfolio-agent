@@ -196,4 +196,20 @@ Peak: 0.4983 at step 1.0M.
 
 **Expected effect**: `policy/turnover` plateaus below 0.5 by end of training. Train/val Sharpe gap narrows. Val Sharpe holds at or above 0.6444 (H4 baseline).
 
-**Status**: Running
+**Results**: Final val Sharpe 0.7056 (post-training evaluation). Checkpoint val Sharpe values:
+- 50k: 0.3951, 100k: 0.4032, 150k: 0.4148, 200k: 0.4477, 250k: 0.4450
+- 300k: 0.4253, 350k: 0.4498, 400k: 0.4257, 450k: 0.4403, 500k: 0.4504
+- 550k: 0.4550, 600k: 0.4605, 650k: 0.4578, 700k: 0.4458, 750k: 0.4134
+- 800k: 0.4500, 850k: 0.4541, 900k: 0.4758, 950k: 0.5328, 1.0M: 0.5967
+- 1.05M: 0.6301, 1.1M: 0.6268, 1.15M: 0.6208, 1.2M: 0.6194, 1.25M: 0.6528
+- 1.3M: 0.6700, 1.35M: 0.6928, 1.4M: 0.6667, 1.45M: 0.6636, 1.5M: 0.6919
+
+Peak checkpoint: 0.6928 at step 1,350,000.
+
+**vs Baseline**: better by 0.0612 (+9.5% vs H4 baseline of 0.6444). New best result.
+
+**Conclusion**: Confirmed. The transaction cost curriculum reproduced H4's late-training surge at a higher level. The delayed ramp (0.0002→0.001 quadratic) allows free early exploration before progressively penalising turnover, leading to a strong surge from 950k onwards (0.53→0.71). H6 is the new confirmed baseline for subsequent hypotheses.
+
+**ClearML task ID**: 40f1afcadac442e2b78a0b40f6f72f01
+
+**Status**: Complete

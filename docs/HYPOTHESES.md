@@ -73,12 +73,14 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 ---
 
 ## H6 — Transaction cost curriculum to suppress turnover-driven overfitting
-**Status**: `[~]`
+**Status**: `[x]`
 **Hypothesis**: The fixed `TRANSACTION_COST = 0.001` is too small to penalise the turnover (1.25) the policy achieves in training. Early in training, a small cost is intentional — the policy needs gradient signal before friction. But by 1M+ steps the cost should be high enough to actively deter the excessive rotation that allows train Sharpe to diverge to 4–5. Ramping transaction cost from ~0.0002 at step 0 to 0.001 at end of training (power-law schedule) gives the policy a free exploration phase and then progressively closes the gap between train and val conditions.
 **Change**: In `src/train.py`, add a callback that updates `transaction_cost` on all vectorized envs at each checkpoint interval. In `src/environment.py`, expose `transaction_cost` as a settable attribute so the callback can update it mid-training.
 **Expected effect**: `policy/turnover` plateaus below 0.5 by end of training. Train/val Sharpe gap narrows. Val Sharpe holds at or above 0.6444 while train Sharpe drops toward 1–2.
 **Diagnostic**: Monitor `policy/turnover` (target: <0.5 by 1M steps), train vs val Sharpe gap, and `costs/mean_tx_cost_per_step` to confirm the ramp is taking effect.
 **Falsification criterion**: If `policy/turnover` remains above 0.8 at 1.5M steps despite the ramp, or val Sharpe drops below 0.60, the curriculum has not constrained the overfit turnover.
+**Result**: Final val Sharpe 0.7056 (post-training evaluation). Peak checkpoint 0.6928 at step 1,350,000. Clear late surge from 950k onwards: 0.5328 → 0.5967 → 0.6301 → 0.6928 → 0.6919 → 0.7056.
+**Conclusion**: Confirmed. New best result — +9.5% vs H4 baseline (0.6444). The delayed cost ramp allows early exploration then progressively penalises turnover, reproducing H4's late-training surge at a higher level. H6 is the new confirmed baseline. ClearML task ID: 40f1afcadac442e2b78a0b40f6f72f01.
 **Note**: Source — Soleymani & Mahootchi, 2025. "Regret-Optimized Portfolio Enhancement through Deep Reinforcement Learning and Future Looking Rewards." arXiv:2502.02619.
 
 ---
