@@ -30,7 +30,6 @@ import gymnasium  # type: ignore[import-untyped]
 from gymnasium import spaces  # type: ignore[import-untyped]
 from typing import Any, override
 
-
 # ---------------------------------------------------------------------------
 # Type aliases
 # ---------------------------------------------------------------------------
@@ -128,7 +127,9 @@ class PortfolioEnv(gymnasium.Env):
 
         # Observation size: window log-return history per asset,
         # plus vol + meanrev + weights per asset, plus portfolio vol scalar.
-        obs_size: int = window * self.N_ASSETS + self.N_ASSETS + self.N_ASSETS + self.N_ASSETS + 1
+        obs_size: int = (
+            window * self.N_ASSETS + self.N_ASSETS + self.N_ASSETS + self.N_ASSETS + 1
+        )
 
         self.observation_space: spaces.Box = spaces.Box(
             low=-np.inf,
@@ -138,9 +139,14 @@ class PortfolioEnv(gymnasium.Env):
         )
 
         # The agent emits raw logits; softmax normalises them inside step().
+        # Large finite bounds [-10, 10] so PPO's Gaussian policy can freely
+        # push logits to any practically useful value. The old [0, 1] bound
+        # zeroed gradients above 1.0 and capped single-asset weights at ~40%;
+        # with ±10, softmax([10,-10,...]) ≈ [1,0,...] giving full concentration.
+        # SB3 requires finite bounds so we cannot use ±inf.
         self.action_space: spaces.Box = spaces.Box(
-            low=0.0,
-            high=1.0,
+            low=-10.0,
+            high=10.0,
             shape=(self.N_ASSETS,),
             dtype=np.float32,
         )
@@ -190,6 +196,21 @@ class PortfolioEnv(gymnasium.Env):
         # rows for the look-back window and at least one step before T-1.
         self._t = int(self.np_random.integers(self._window, self._T - 1))
 
+        # Warm up EMA accumulators from the look-back window so the
+        # differential Sharpe denominator is non-degenerate from step 1.
+        # Use equal weights for the warm-up (no policy exists yet).
+        logret_cols: list[int] = [
+            i * self.N_FEATURES_PER_ASSET + self.LOGRET_OFFSET
+            for i in range(self.N_ASSETS)
+        ]
+        equal_w: FloatArray = np.full(
+            self.N_ASSETS, 1.0 / self.N_ASSETS, dtype=np.float32
+        )
+        for s in range(self._t - self._window, self._t):
+            R: float = float(np.dot(equal_w, self._features[s, logret_cols]))
+            self._A += self._eta * (R - self._A)
+            self._B += self._eta * (R * R - self._B)
+
         obs = self._get_obs()
         return obs, {}
 
@@ -229,9 +250,9 @@ class PortfolioEnv(gymnasium.Env):
 
         # Sanity check: softmax output must sum to 1.0 within floating-point
         # tolerance. If this fails, something is wrong with _softmax().
-        assert abs(new_weights.sum() - 1.0) < 1e-5, (
-            f"Softmax weights do not sum to 1: sum={new_weights.sum():.8f}"
-        )
+        assert (
+            abs(new_weights.sum() - 1.0) < 1e-5
+        ), f"Softmax weights do not sum to 1: sum={new_weights.sum():.8f}"
 
         # ------------------------------------------------------------------
         # 2. Compute portfolio return at the current timestep
@@ -248,7 +269,9 @@ class PortfolioEnv(gymnasium.Env):
             i * self.N_FEATURES_PER_ASSET + self.LOGRET_OFFSET
             for i in range(self.N_ASSETS)
         ]
-        asset_returns: FloatArray = self._features[self._t + 1, logret_cols]  # shape (N,)
+        asset_returns: FloatArray = self._features[
+            self._t + 1, logret_cols
+        ]  # shape (N,)
 
         # Portfolio return: weighted sum of individual asset log returns
         portfolio_return: float = float(np.dot(new_weights, asset_returns))
@@ -324,9 +347,9 @@ class PortfolioEnv(gymnasium.Env):
         # ------------------------------------------------------------------
         reward: float = differential_sharpe - cost
 
-        assert not np.isnan(reward), (
-            f"NaN reward at t={self._t}: DS={differential_sharpe:.6f}, cost={cost:.6f}"
-        )
+        assert not np.isnan(
+            reward
+        ), f"NaN reward at t={self._t}: DS={differential_sharpe:.6f}, cost={cost:.6f}"
 
         # ------------------------------------------------------------------
         # 7. Advance state

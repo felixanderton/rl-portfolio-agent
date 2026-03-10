@@ -40,11 +40,13 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 ---
 
 ## H4 — Fix EMA warm-up at episode start
-**Status**: `[ ]`
+**Status**: `[x]`
 **Hypothesis**: `_A` and `_B` reset to zero at every `env.reset()`. The differential Sharpe denominator is `(B_prev - A_prev² + eps)^1.5`, which equals `eps^1.5` ≈ 0 for the first ~50-100 steps of each episode while the EMAs accumulate. This produces a degenerate reward signal at the start of every episode, poisoning a large fraction of the training data. Pre-warming the accumulators from the `window` steps of prior history already available in the feature matrix at `t=start` would make every step of every episode produce a valid reward.
 **Change**: In `PortfolioEnv.reset()`, after sampling `_t`, compute `_A` and `_B` by running a forward pass over `features[_t-window:_t]` log-return columns using the EMA update rule before returning the first observation.
 **Expected effect**: Cleaner reward signal throughout training, faster convergence, and higher final val Sharpe. The noisiness of the early-episode rewards has been diluting gradient quality across all of H1 and H2.
 **Diagnostic**: Monitor reward/mean in ClearML — it should show a higher mean early in episodes. Val Sharpe curve should be less jagged.
+**Result**: Final val Sharpe 0.6444. Peak 0.6564 at step 1,350,000. Clear acceleration after 950k steps (0.47 → 0.66 range). +20.6% vs H1 (0.5344). Now exceeds the momentum baseline on validation data.
+**Conclusion**: Both fixes confirmed effective. The action space change unlocked concentrated positions; EMA warm-up eliminated degenerate early-episode rewards. H4 is the new best result and confirmed baseline for subsequent hypotheses. ClearML task ID: 06032dcd5f1947db86a11aa2450aa620.
 
 ---
 
@@ -65,3 +67,12 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 **Expected effect**: Substantial improvement in val Sharpe as the agent learns to exploit multi-horizon momentum and mean-reversion. This addresses a data constraint rather than a training constraint, so the ceiling is higher than H3/H5.
 **Diagnostic**: Monitor per-asset allocation in ClearML — the agent should show stronger momentum-following behaviour (overweighting recent winners) once it can see 60-day signals.
 **Note**: Largest change of the four. Run after H3 and H5 to establish a stable training baseline first.
+
+---
+
+## H11 — Expand asset universe (5 sector ETFs → 9 multi-asset ETFs)
+**Status**: `[x]`
+**Hypothesis**: All 5 current assets (XLK, XLE, XLF, XLV, XLI) are US equity sector ETFs — they are highly correlated and collapse together in risk-off environments. Adding TLT (long-term Treasuries), GLD (gold), EFA (international developed), and EEM (emerging markets) introduces genuinely uncorrelated return streams. The Sharpe ratio of the combined portfolio is fundamentally bounded by constituent correlations; with cross-asset diversification, the achievable Sharpe ceiling rises substantially. This is a change to the problem formulation, not a hyperparameter tweak. TRAIN_START shifts to 2005-01-01 (GLD constraint), reducing training data from ~3750 to ~2500 rows but gaining 4 uncorrelated asset classes.
+**Change**: In `data.py`, update `TICKERS` to include TLT, GLD, EFA, EEM and set `TRAIN_START = "2005-01-01"`. In `environment.py`, derive `N_ASSETS` from `prices.shape[1]` rather than hardcoding 5. All observation/action space sizes update automatically.
+**Expected effect**: Substantially higher val Sharpe as the agent learns to rotate into bonds and gold during equity drawdowns. This addresses the fundamental ceiling on the achievable Sharpe, not a training constraint.
+**Diagnostic**: Monitor per-asset allocation in ClearML — the agent should show meaningful TLT/GLD allocation during stress periods. Val Sharpe should materially exceed H1's 0.5344.

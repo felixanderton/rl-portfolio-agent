@@ -12,7 +12,6 @@ Usage:
 
 from __future__ import annotations
 
-import io
 import logging
 import math
 from pathlib import Path
@@ -71,6 +70,7 @@ CLEARML_PROJECT: str = "rl-portfolio-agent"
 # ---------------------------------------------------------------------------
 # Logging setup
 # ---------------------------------------------------------------------------
+
 
 def _make_env(features: FloatArray, prices: FloatArray, rank: int) -> Monitor:
     """Factory for SubprocVecEnv — must be module-level to be picklable."""
@@ -182,17 +182,22 @@ class TrainingCallback(BaseCallback):
 
         # --- Sharpe ---
         std = float(returns.std(ddof=1))
-        sharpe = (float(returns.mean()) / std * math.sqrt(TRADING_DAYS_PER_YEAR)
-                  if std > 0.0 else 0.0)
+        sharpe = (
+            float(returns.mean()) / std * math.sqrt(TRADING_DAYS_PER_YEAR)
+            if std > 0.0
+            else 0.0
+        )
 
         # --- Reward distribution ---
         reward_mean = float(returns.mean())
         reward_std = float(returns.std(ddof=1))
-        reward_min = float(returns.min())
-        reward_max = float(returns.max())
 
         # --- Turnover ---
-        turnover = float(np.mean(self._episode_weight_changes)) if self._episode_weight_changes else 0.0
+        turnover = (
+            float(np.mean(self._episode_weight_changes))
+            if self._episode_weight_changes
+            else 0.0
+        )
 
         # --- Weight entropy: -sum(w * log(w)), averaged over episode steps ---
         # High entropy ≈ equal weight (not learning to differentiate assets)
@@ -206,28 +211,18 @@ class TrainingCallback(BaseCallback):
         mean_weights = weights_arr.mean(axis=0)  # shape (N,)
 
         # --- Transaction cost drag vs gross return ---
-        gross_return = float(returns.mean())
         mean_cost = float(np.mean(self._episode_costs))
 
-        # Log to TensorBoard (mirrored to ClearML automatically)
-        self.logger.record("train/episode_sharpe", sharpe)
-        self.logger.record("train/episode_turnover", turnover)
-        self.logger.record("train/reward_mean", reward_mean)
-        self.logger.record("train/reward_std", reward_std)
-        self.logger.record("train/weight_entropy", mean_entropy)
-        self.logger.record("train/cost_drag", mean_cost)
-
-        # Explicitly log to ClearML for richer grouping
+        # Log directly to ClearML only — not via self.logger.record() to avoid
+        # polluting SB3's internal "train/" TensorBoard group with our metrics.
         for title, series, value in [
             ("reward", "mean", reward_mean),
             ("reward", "std", reward_std),
-            ("reward", "min", reward_min),
-            ("reward", "max", reward_max),
             ("policy", "sharpe", sharpe),
             ("policy", "turnover", turnover),
             ("policy", "weight_entropy", mean_entropy),
             ("costs", "mean_tx_cost_per_step", mean_cost),
-            ("costs", "gross_return_per_step", gross_return),
+            ("costs", "gross_return_per_step", reward_mean),
         ]:
             cl.report_scalar(title=title, series=series, value=value, iteration=n)
 
@@ -280,10 +275,14 @@ class PeriodicValCallback(BaseCallback):
                 self.model, self._val_features, self._val_prices  # type: ignore[arg-type]
             )
             self._task.get_logger().report_scalar(
-                title="validation", series="sharpe_ratio",
-                value=val_sharpe, iteration=self.num_timesteps,
+                title="validation",
+                series="sharpe_ratio",
+                value=val_sharpe,
+                iteration=self.num_timesteps,
             )
-            logger.info(f"  [step {self.num_timesteps:>7}]  val Sharpe = {val_sharpe:.4f}")
+            logger.info(
+                f"  [step {self.num_timesteps:>7}]  val Sharpe = {val_sharpe:.4f}"
+            )
         return True
 
 
@@ -371,7 +370,10 @@ def run_validation(
     fig, ax = plt.subplots(figsize=(14, 3))
     im = ax.imshow(
         weights_arr[1:].T,  # skip anchor row; shape (N, T)
-        aspect="auto", vmin=0, vmax=1, cmap="YlOrRd",
+        aspect="auto",
+        vmin=0,
+        vmax=1,
+        cmap="YlOrRd",
     )
     ax.set_yticks(range(len(TICKERS)))
     ax.set_yticklabels(TICKERS)
@@ -380,8 +382,10 @@ def run_validation(
     fig.colorbar(im, ax=ax, label="Weight")
     fig.tight_layout()
     cl.report_matplotlib_figure(
-        title="validation_plots", series="weight_heatmap",
-        figure=fig, iteration=final_step,
+        title="validation_plots",
+        series="weight_heatmap",
+        figure=fig,
+        iteration=final_step,
     )
     plt.close(fig)
 
@@ -396,8 +400,10 @@ def run_validation(
         ax.text(i, v + 0.01, f"{v:.2f}", ha="center", fontsize=9)
     fig.tight_layout()
     cl.report_matplotlib_figure(
-        title="validation_plots", series="mean_allocation",
-        figure=fig, iteration=final_step,
+        title="validation_plots",
+        series="mean_allocation",
+        figure=fig,
+        iteration=final_step,
     )
     plt.close(fig)
 
@@ -413,8 +419,10 @@ def run_validation(
     ax.set_title("Cumulative portfolio value — validation period")
     fig.tight_layout()
     cl.report_matplotlib_figure(
-        title="validation_plots", series="cumulative_value",
-        figure=fig, iteration=final_step,
+        title="validation_plots",
+        series="cumulative_value",
+        figure=fig,
+        iteration=final_step,
     )
     plt.close(fig)
 
@@ -476,7 +484,10 @@ def _train_one(
     # 1. Build and wrap the training environment
     # ------------------------------------------------------------------
     train_env = DummyVecEnv(
-        [lambda rank=i: _make_env(train_features, train_prices, rank) for i in range(N_ENVS)]
+        [
+            lambda rank=i: _make_env(train_features, train_prices, rank)
+            for i in range(N_ENVS)
+        ]
     )
 
     # ------------------------------------------------------------------
@@ -593,7 +604,9 @@ def main() -> None:
         cfg, train_features, train_prices, val_features, val_prices
     )
 
-    logger.info(f"Model saved to {BEST_MODEL_DIR / 'best_model'}  (val_sharpe={val_sharpe:.4f})")
+    logger.info(
+        f"Model saved to {BEST_MODEL_DIR / 'best_model'}  (val_sharpe={val_sharpe:.4f})"
+    )
     print(f"\nVal Sharpe: {val_sharpe:.4f}")
     print(f"Model saved to {BEST_MODEL_DIR / 'best_model'}\n")
 
