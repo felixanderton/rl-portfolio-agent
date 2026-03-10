@@ -139,12 +139,14 @@ class PortfolioEnv(gymnasium.Env):
         )
 
         # The agent emits raw logits; softmax normalises them inside step().
-        # Unbounded so PPO's Gaussian policy can freely push logits to any
-        # value — clipping to [0,1] was silently zeroing gradients for
-        # logits above 1.0 and capping the maximum single-asset weight at ~40%.
+        # Large finite bounds [-10, 10] so PPO's Gaussian policy can freely
+        # push logits to any practically useful value. The old [0, 1] bound
+        # zeroed gradients above 1.0 and capped single-asset weights at ~40%;
+        # with ±10, softmax([10,-10,...]) ≈ [1,0,...] giving full concentration.
+        # SB3 requires finite bounds so we cannot use ±inf.
         self.action_space: spaces.Box = spaces.Box(
-            low=-np.inf,
-            high=np.inf,
+            low=-10.0,
+            high=10.0,
             shape=(self.N_ASSETS,),
             dtype=np.float32,
         )
