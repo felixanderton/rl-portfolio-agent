@@ -60,6 +60,11 @@ ENT_COEF: float = 0.01
 # 0.001 = 10 bps, a realistic proxy for ETF bid-ask spreads.
 TRANSACTION_COST: float = 0.001
 
+# Maximum steps per training episode (1 trading year). Caps episode length so
+# the policy must generalise across many 1-year windows rather than memorising
+# a single multi-year trajectory.
+MAX_EPISODE_STEPS: int = 252
+
 # Annualisation factor for Sharpe computation inside the callback
 TRADING_DAYS_PER_YEAR: int = 252
 
@@ -79,7 +84,12 @@ CLEARML_PROJECT: str = "rl-portfolio-agent"
 
 def _make_env(features: FloatArray, prices: FloatArray, rank: int) -> Monitor:
     """Factory for SubprocVecEnv — must be module-level to be picklable."""
-    env = PortfolioEnv(features, prices, transaction_cost=TRANSACTION_COST)
+    env = PortfolioEnv(
+        features,
+        prices,
+        transaction_cost=TRANSACTION_COST,
+        max_episode_steps=MAX_EPISODE_STEPS,
+    )
     env.reset(seed=rank)
     return Monitor(env)
 

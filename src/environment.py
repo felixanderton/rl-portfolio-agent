@@ -90,6 +90,7 @@ class PortfolioEnv(gymnasium.Env):
         window: int = 20,
         transaction_cost: float = 0.001,
         eta: float = 0.01,
+        max_episode_steps: int | None = None,
     ) -> None:
         """
         Parameters
@@ -122,6 +123,7 @@ class PortfolioEnv(gymnasium.Env):
         self._window = window
         self._transaction_cost = transaction_cost
         self._eta = eta
+        self._max_episode_steps = max_episode_steps
 
         self._T: int = features.shape[0]
 
@@ -203,6 +205,7 @@ class PortfolioEnv(gymnasium.Env):
         # Sample a random starting timestep. We need at least `window` prior
         # rows for the look-back window and at least one step before T-1.
         self._t = int(self.np_random.integers(self._window, self._T - 1))
+        self._episode_start: int = self._t
 
         # Warm up EMA accumulators from the look-back window so the
         # differential Sharpe denominator is non-degenerate from step 1.
@@ -378,7 +381,11 @@ class PortfolioEnv(gymnasium.Env):
             "weights": new_weights,
         }
 
-        return obs, reward, terminated, False, info
+        truncated: bool = (
+            self._max_episode_steps is not None
+            and (self._t - self._episode_start) >= self._max_episode_steps
+        )
+        return obs, reward, terminated, truncated, info
 
     # ------------------------------------------------------------------
     # Private helpers

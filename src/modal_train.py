@@ -34,7 +34,7 @@ image = (
 )
 
 REPO_URL = "https://github.com/felixanderton/rl-portfolio-agent"
-BRANCH = "hypothesis/H6"
+BRANCH = "hypothesis/H9"
 
 
 @app.function(
