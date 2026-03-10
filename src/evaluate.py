@@ -47,11 +47,11 @@ ROLLING_WINDOW: int = 252
 # Output resolution for saved plots
 PLOT_DPI: int = 150
 
-# Directory where plots are saved
-PLOTS_DIR: Path = Path("plots")
+# Directory where plots are saved — resolves to <project_root>/runs/plots/
+PLOTS_DIR: Path = Path(__file__).resolve().parent.parent / "runs" / "plots"
 
 # Path to the best model saved by train.py
-BEST_MODEL_PATH: str = "best_model/best_model"
+BEST_MODEL_PATH: str = str(Path(__file__).resolve().parent.parent / "runs" / "best_model" / "best_model")
 
 # Annualisation factor — consistent with baselines.py and train.py
 TRADING_DAYS_PER_YEAR: int = 252

@@ -56,13 +56,18 @@ LEARNING_RATE: float = 1e-4
 N_STEPS: int = 2048
 ENT_COEF: float = 0.01
 
+# Proportional transaction cost applied to L1 weight change at each rebalance step.
+# 0.001 = 10 bps, a realistic proxy for ETF bid-ask spreads.
+TRANSACTION_COST: float = 0.001
+
 # Annualisation factor for Sharpe computation inside the callback
 TRADING_DAYS_PER_YEAR: int = 252
 
-# Root directories for TensorBoard logs and checkpoints
-LOG_DIR: Path = Path("logs")
-CHECKPOINT_DIR: Path = Path("checkpoints")
-BEST_MODEL_DIR: Path = Path("best_model")
+# Root output directory — always resolves to <project_root>/runs/ regardless of cwd
+_RUNS_DIR: Path = Path(__file__).resolve().parent.parent / "runs"
+LOG_DIR: Path = _RUNS_DIR / "logs"
+CHECKPOINT_DIR: Path = _RUNS_DIR / "checkpoints"
+BEST_MODEL_DIR: Path = _RUNS_DIR / "best_model"
 
 # ClearML project name — must match the project created by ml-setup
 CLEARML_PROJECT: str = "rl-portfolio-agent"
@@ -74,7 +79,7 @@ CLEARML_PROJECT: str = "rl-portfolio-agent"
 
 def _make_env(features: FloatArray, prices: FloatArray, rank: int) -> Monitor:
     """Factory for SubprocVecEnv — must be module-level to be picklable."""
-    env = PortfolioEnv(features, prices)
+    env = PortfolioEnv(features, prices, transaction_cost=TRANSACTION_COST)
     env.reset(seed=rank)
     return Monitor(env)
 
@@ -304,7 +309,7 @@ def _rollout(
     dummy anchor.
     """
     _, N = prices.shape
-    env = PortfolioEnv(features, prices)
+    env = PortfolioEnv(features, prices, transaction_cost=TRANSACTION_COST)
     obs, _ = env.reset(seed=0)
     env._t = env._window  # type: ignore[attr-defined]
     obs = env._get_obs()  # type: ignore[attr-defined]

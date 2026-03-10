@@ -33,8 +33,19 @@
 - Never hardcode secrets — use environment variables
 - Run `reviewer` before committing non-trivial changes
 
+## Directory structure
+
+```
+src/        Python source (data.py, environment.py, train.py, evaluate.py, ablation.py, baselines.py, modal_train.py)
+docs/       Experiment tracking and research (EXPERIMENT_LOG.md, HYPOTHESES.md, METRICS_GUIDE.md, ARCHITECTURE.md)
+papers/     Reference PDFs
+runs/       Gitignored training outputs (checkpoints/, logs/, best_model/, plots/)
+```
+
+Run training: `python src/train.py` from project root, or `.venv/bin/modal run src/modal_train.py` for Modal.
+
 ## ML Tracking
 
 - ClearML project name: `rl-portfolio-agent`
 - Invoke `ml-tracker` agent before and after each training run
-- All experiments must have an entry in `EXPERIMENT_LOG.md`
+- All experiments must have an entry in `docs/EXPERIMENT_LOG.md`

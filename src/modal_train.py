@@ -46,9 +46,9 @@ BRANCH = "fix/action-space-ema-warmup"
 )
 def train():
     subprocess.run(["git", "clone", "--branch", BRANCH, REPO_URL, "/app"], check=True)
-    os.chdir("/app")
+    os.chdir("/app/src")
     import sys
-    sys.path.insert(0, "/app")
+    sys.path.insert(0, "/app/src")
     from train import main
     main()
 

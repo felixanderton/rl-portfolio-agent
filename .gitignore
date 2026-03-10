@@ -7,9 +7,7 @@ __pycache__/
 .venv/
 
 # Training outputs
-best_model/
-checkpoints/
-logs/
+runs/
 *.zip
 
 # Tooling caches

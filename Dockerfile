@@ -10,8 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY *.py .
+COPY src/ ./src/
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "train.py"]
+CMD ["python", "src/train.py"]

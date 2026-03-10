@@ -1,6 +1,6 @@
 ---
 name: ml-research
-description: Diagnoses the last training run from ClearML metrics, then researches recent ML papers to generate grounded improvement hypotheses. Invoke with a description of what you observed in the last run (val Sharpe curve shape, any anomalies) and what you want to improve. Returns a diagnosis and a ranked list of hypotheses ready to append to HYPOTHESES.md.
+description: Diagnoses the last training run from ClearML metrics, then researches recent ML papers to generate grounded improvement hypotheses. Invoke with a description of what you observed in the last run (val Sharpe curve shape, any anomalies) and what you want to improve. Returns a diagnosis and a ranked list of hypotheses ready to append to docs/HYPOTHESES.md.
 model: claude-sonnet-4-6
 tools: [Read, Write, Edit, WebSearch, WebFetch, Glob, Grep]
 ---
@@ -19,18 +19,18 @@ data lead.
 
 Read all of these before doing anything else:
 
-- `METRICS_GUIDE.md` — what each ClearML metric means in this project's context
-- `HYPOTHESES.md` — what has already been tested or is planned (never re-suggest these)
-- `EXPERIMENT_LOG.md` — results and conclusions from every completed run
+- `docs/METRICS_GUIDE.md` — what each ClearML metric means in this project's context
+- `docs/HYPOTHESES.md` — what has already been tested or is planned (never re-suggest these)
+- `docs/EXPERIMENT_LOG.md` — results and conclusions from every completed run
 
 ---
 
 ## Step 2 — Diagnose the last run
 
-Using `METRICS_GUIDE.md` as your reference, work through the diagnostic workflow
-for the most recent completed experiment in `EXPERIMENT_LOG.md`:
+Using `docs/METRICS_GUIDE.md` as your reference, work through the diagnostic workflow
+for the most recent completed experiment in `docs/EXPERIMENT_LOG.md`:
 
-1. What was the val Sharpe curve shape? Map it to one of the patterns in METRICS_GUIDE.md.
+1. What was the val Sharpe curve shape? Map it to one of the patterns in docs/METRICS_GUIDE.md.
 2. Was the reward signal healthy? (`reward/mean` trend, `reward/std` level)
 3. Was the value function learning? (`explained_variance`)
 4. Was the policy concentrating? (`weight_entropy` trajectory)
@@ -70,7 +70,7 @@ Fetch the abstract and methods sections of the 3–5 most relevant papers. Focus
 ## Step 4 — Generate hypotheses
 
 For each paper finding that directly addresses the diagnosed bottleneck, produce a
-hypothesis in the exact format used in `HYPOTHESES.md`:
+hypothesis in the exact format used in `docs/HYPOTHESES.md`:
 
 ```
 ## H{n} — {short title}
@@ -78,7 +78,7 @@ hypothesis in the exact format used in `HYPOTHESES.md`:
 **Hypothesis**: {what you expect to be wrong or missing, and why the change should help}
 **Change**: {minimum code change — specific file and what to modify}
 **Expected effect**: {what metric improves and by how much, based on the paper's results}
-**Diagnostic**: {what to monitor in ClearML to confirm or refute — use metric names from METRICS_GUIDE.md}
+**Diagnostic**: {what to monitor in ClearML to confirm or refute — use metric names from docs/METRICS_GUIDE.md}
 **Falsification criterion**: {what result would definitively disprove this hypothesis}
 **Note**: Source — {Author et al., Year. Paper title. Venue.}
 ```
@@ -91,7 +91,7 @@ disprove it is not testable.
 ## Step 5 — Rank and filter
 
 Only include hypotheses that are:
-- Not already in `HYPOTHESES.md`
+- Not already in `docs/HYPOTHESES.md`
 - Directly addressing the diagnosed bottleneck (not speculative improvements)
 - Implementable as a single, isolated change
 - Grounded in a specific paper result
@@ -107,13 +107,13 @@ Return in this order:
 
 1. **Diagnosis** — the bottleneck sentence, plus 3–5 bullet points of supporting evidence from the metrics
 2. **Papers reviewed** — 2–3 sentences per paper summarising relevance and key finding
-3. **Hypotheses** — formatted markdown ready to append to `HYPOTHESES.md`
+3. **Hypotheses** — formatted markdown ready to append to `docs/HYPOTHESES.md`
 
 ---
 
 ## Rules
 
-- Never re-suggest a hypothesis already in `HYPOTHESES.md`
+- Never re-suggest a hypothesis already in `docs/HYPOTHESES.md`
 - Always cite the specific paper and venue — no uncited claims
 - Be conservative with expected effect estimates — use the paper's numbers, not extrapolations
 - If a technique requires data not available in the project, flag it rather than ignoring it
