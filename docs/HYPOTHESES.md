@@ -73,7 +73,7 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 ---
 
 ## H6 — Transaction cost curriculum to suppress turnover-driven overfitting
-**Status**: `[ ]`
+**Status**: `[~]`
 **Hypothesis**: The fixed `TRANSACTION_COST = 0.001` is too small to penalise the turnover (1.25) the policy achieves in training. Early in training, a small cost is intentional — the policy needs gradient signal before friction. But by 1M+ steps the cost should be high enough to actively deter the excessive rotation that allows train Sharpe to diverge to 4–5. Ramping transaction cost from ~0.0002 at step 0 to 0.001 at end of training (power-law schedule) gives the policy a free exploration phase and then progressively closes the gap between train and val conditions.
 **Change**: In `src/train.py`, add a callback that updates `transaction_cost` on all vectorized envs at each checkpoint interval. In `src/environment.py`, expose `transaction_cost` as a settable attribute so the callback can update it mid-training.
 **Expected effect**: `policy/turnover` plateaus below 0.5 by end of training. Train/val Sharpe gap narrows. Val Sharpe holds at or above 0.6444 while train Sharpe drops toward 1–2.

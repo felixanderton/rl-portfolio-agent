@@ -179,3 +179,21 @@ Peak: 0.4983 at step 1.0M.
 **ClearML task ID**: b465a5eb82524cf4971a1bcba02c095c
 
 **Status**: Complete
+
+---
+
+## 2026-03-10 — H6: Transaction cost curriculum to suppress turnover-driven overfitting
+
+**Hypothesis**: The fixed `TRANSACTION_COST=0.001` is too small to penalise `episode_turnover` of 1.25. A power-law curriculum ramps `transaction_cost` from 0.0002 at step 0 to 0.001 by the end of training, giving the policy a free exploration phase before progressively penalising excessive rotation.
+
+**Changes**:
+- `src/train.py`: Add `TxCostCurriculumCallback` that updates `transaction_cost` on all vectorised envs each step using a power-law schedule (`TC_MIN=0.0002` → `TRANSACTION_COST=0.001` over 1.5M steps, exponent `p=2`).
+- `src/environment.py`: Expose `transaction_cost` as a settable property on `PortfolioEnv` so the callback can update it live.
+
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost_final=0.001, transaction_cost_start=0.0002, tc_schedule=power-law(p=2)`
+
+**Baseline**: val Sharpe 0.6444 (H4, ClearML task 06032dcd5f1947db86a11aa2450aa620)
+
+**Expected effect**: `policy/turnover` plateaus below 0.5 by end of training. Train/val Sharpe gap narrows. Val Sharpe holds at or above 0.6444 (H4 baseline).
+
+**Status**: Running
