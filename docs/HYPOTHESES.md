@@ -66,6 +66,8 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 **Expected effect**: Train Sharpe drops from ~4–5 toward ~1.5; val Sharpe holds at or near 0.6444 (H4 baseline), potentially improving ~5–8% based on the 6% average improvement reported across RL regularisation ablations.
 **Diagnostic**: Monitor `policy/sharpe` (train) vs `validation/sharpe_ratio` gap — target gap <2.0 by end of training. Monitor `explained_variance` (must stay >0.5) and `clip_fraction` (should decrease from 0.3 as updates become more conservative).
 **Falsification criterion**: If the train/val Sharpe gap remains above 3.0 at 1.5M steps, or `explained_variance` drops below 0.3, weight decay has not constrained the overfitting and may be harming the value function.
+**Result**: Final val Sharpe 0.5211 (best checkpoint). Peak during training 0.4983 at step 1.0M. Curve oscillated between 0.39–0.50 throughout, never reaching H4 levels.
+**Conclusion**: Disproven. Weight decay at 1e-4 substantially degraded performance (-18.4% vs H4 baseline of 0.6444). The regularisation appears to have over-constrained the policy, preventing it from learning meaningful concentrated allocations. The flat, noisy curve — contrasting with H4's late-training surge — suggests weight decay is interfering with the gradient dynamics that drove H4's improvement. Reverted to Adam (no weight decay). ClearML task ID: b465a5eb82524cf4971a1bcba02c095c.
 **Note**: Source — Taiga et al., 2024. "The Role of Deep Learning Regularizations on Actors in Offline RL." arXiv:2409.07606.
 
 ---

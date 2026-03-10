@@ -162,4 +162,20 @@ Val Sharpe by checkpoint:
 
 **Expected effect**: Train Sharpe drops from ~4–5 toward ~1.5; val Sharpe holds at or near 0.6444, potentially improving ~5–8%.
 
-**Status**: Running
+**Results**: Final val Sharpe 0.5211 (best checkpoint evaluation). Val Sharpe by checkpoint:
+- 50k: 0.3993, 100k: 0.4020, 150k: 0.4159, 200k: 0.4418, 250k: 0.4185
+- 300k: 0.3930, 350k: 0.4089, 400k: 0.3853, 450k: 0.4215, 500k: 0.4340
+- 550k: 0.4561, 600k: 0.4772, 650k: 0.4801, 700k: 0.4765, 750k: 0.4654
+- 800k: 0.4354, 850k: 0.4672, 900k: 0.4675, 950k: 0.4511, 1.0M: 0.4983
+- 1.05M: 0.4798, 1.1M: 0.4464, 1.15M: 0.4203, 1.2M: 0.4054, 1.25M: 0.4280
+- 1.3M: 0.4458, 1.35M: 0.4636, 1.4M: 0.4582, 1.45M: 0.4519, 1.5M: 0.5135
+
+Peak: 0.4983 at step 1.0M.
+
+**vs Baseline**: worse by 0.1233 (-18.4% vs H4 baseline of 0.6444)
+
+**Conclusion**: Disproven. Weight decay at 1e-4 substantially degraded performance. The regularisation over-constrained the policy, preventing the late-training surge seen in H4 (0.47→0.66 after 950k steps). The val Sharpe curve was flat and noisy throughout (0.39–0.50), never approaching H4 levels. Weight decay interfered with the gradient dynamics that allowed H4 to find concentrated positions. Reverted to Adam (no weight decay).
+
+**ClearML task ID**: b465a5eb82524cf4971a1bcba02c095c
+
+**Status**: Complete
