@@ -213,3 +213,21 @@ Peak checkpoint: 0.6928 at step 1,350,000.
 **ClearML task ID**: 40f1afcadac442e2b78a0b40f6f72f01
 
 **Status**: Complete
+
+---
+
+## 2026-03-10 — H9: Episode length cap (252 steps / 1 trading year)
+
+**Hypothesis**: Current episodes run up to ~3700 steps (nearly the full training period), allowing the policy to memorise a specific multi-year trajectory and producing train Sharpe ~4–5. Capping at 252 steps forces each episode to cover a random 1-year window, requiring the policy to learn allocations that generalise across regimes rather than memorising one long trajectory.
+
+**Changes**:
+- `src/train.py`: Add `MAX_EPISODE_STEPS: int = 252`, pass it to `PortfolioEnv` via `_make_env`.
+- `src/environment.py`: Add `max_episode_steps` parameter to `__init__`, store `self._episode_start` on `reset()`, return `truncated=True` in `step()` when `self._t - self._episode_start >= self._max_episode_steps`.
+
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost_curriculum=0.0002→0.001, max_episode_steps=252`
+
+**Baseline**: val Sharpe 0.7056 (H6, ClearML task 40f1afcadac442e2b78a0b40f6f72f01)
+
+**Expected effect**: Train Sharpe drops substantially from ~4–5. Val Sharpe holds or improves above H6's 0.7056.
+
+**Status**: Running

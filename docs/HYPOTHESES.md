@@ -93,3 +93,13 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 **Diagnostic**: Monitor `policy/sharpe` (train) for sustained reduction. Val Sharpe should not degrade — if it drops below 0.55 early, block size is too small and is destroying the temporal structure the policy relies on.
 **Falsification criterion**: If val Sharpe at 1.5M steps is below 0.60, bootstrap augmentation has harmed generalisation rather than helping — likely because synthetic episodes do not preserve the return autocorrelation the policy relies on.
 **Note**: Source — Soleymani & Mahootchi, 2025. "Regret-Optimized Portfolio Enhancement through Deep Reinforcement Learning and Future Looking Rewards." arXiv:2502.02619.
+
+---
+
+## H9 — Episode length cap (252 steps / 1 trading year)
+**Status**: `[~]`
+**Hypothesis**: Current episodes run up to ~3700 steps — nearly the full training period. The policy can memorise a specific multi-year trajectory (dot-com crash → recovery → 2008 → rebound) as one continuous sequence, producing train Sharpe ~4–5. Capping episodes at 252 steps (1 trading year) means each episode sees a random 1-year window from the training data. The policy must learn allocations that work across many independent regimes rather than one long memorised path.
+**Change**: Add `MAX_EPISODE_STEPS: int = 252` to `src/train.py` and pass it to `PortfolioEnv` via `_make_env`. In `src/environment.py`, add `max_episode_steps: int` parameter to `__init__`, store `self._episode_start` on `reset()`, and return `truncated=True` in `step()` when `self._t - self._episode_start >= self._max_episode_steps`.
+**Expected effect**: Train Sharpe drops substantially from ~4–5. Val Sharpe holds or improves above H6's 0.7056.
+**Diagnostic**: Monitor `policy/sharpe` (train) — expect significant drop toward 1–2. Monitor `validation/sharpe_ratio` — should still show a late-training surge. Monitor `reward/std` — shorter episodes should reduce within-episode variance.
+**Falsification criterion**: If val Sharpe is below 0.65 at 1M steps, the cap is destroying the temporal signal the differential Sharpe EMA needs to stabilise.
