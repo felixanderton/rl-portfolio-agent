@@ -519,6 +519,7 @@ def _train_one(
             ent_coef=cfg.ent_coef,
             tensorboard_log=tensorboard_log_dir,
             verbose=0,
+            policy_kwargs=dict(net_arch=[32, 32]),
         )
 
     # ------------------------------------------------------------------
