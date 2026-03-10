@@ -24,7 +24,7 @@ real prices. This is the ground truth for whether the policy is improving.
 | Volatile throughout (oscillates ±0.05+) | High gradient variance — check `reward/std`, consider more envs or larger batch |
 
 **Target**: beat the momentum baseline on val (currently ~0.52 on 2015–2019).
-**Current best**: 0.6564 (fix/action-space-ema-warmup, step 1.35M).
+**Current best**: 0.7056 (H6 transaction cost curriculum, post-training eval).
 
 ---
 
