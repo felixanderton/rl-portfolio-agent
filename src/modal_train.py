@@ -34,7 +34,7 @@ image = (
 )
 
 REPO_URL = "https://github.com/felixanderton/rl-portfolio-agent"
-BRANCH = "fix/action-space-ema-warmup"
+BRANCH = "hypothesis/H6"
 
 
 @app.function(
