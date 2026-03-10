@@ -91,3 +91,13 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 **Diagnostic**: Monitor `policy/sharpe` (train) for sustained reduction. Val Sharpe should not degrade — if it drops below 0.55 early, block size is too small and is destroying the temporal structure the policy relies on.
 **Falsification criterion**: If val Sharpe at 1.5M steps is below 0.60, bootstrap augmentation has harmed generalisation rather than helping — likely because synthetic episodes do not preserve the return autocorrelation the policy relies on.
 **Note**: Source — Soleymani & Mahootchi, 2025. "Regret-Optimized Portfolio Enhancement through Deep Reinforcement Learning and Future Looking Rewards." arXiv:2502.02619.
+
+---
+
+## H8 — Reduce policy network capacity ([64,64] → [32,32])
+**Status**: `[~]`
+**Hypothesis**: The [64,64] network (~12k parameters) has sufficient capacity to memorise specific 2000–2014 return sequences across ~50 repetitions of the training data, producing train Sharpe ~4–5 while val Sharpe stalls at 0.65. A 5-asset allocation policy only needs to learn a soft ranking of assets given current features — a low-complexity function well within [32,32] (~4k parameters). Halving capacity limits what the policy can memorise, directly attacking the train/val gap without disrupting the gradient dynamics that drive H4's late-training surge.
+**Change**: In `src/train.py`, pass `policy_kwargs=dict(net_arch=[32, 32])` to the PPO constructor. No other changes.
+**Expected effect**: Train Sharpe drops from ~4–5 toward ~1.5–2. Val Sharpe holds at or near 0.6444 (H4 baseline). Training should be ~2× faster per step than [64,64].
+**Diagnostic**: Monitor `policy/sharpe` (train) vs `validation/sharpe_ratio` gap — target gap <2.0. Monitor `explained_variance` (must stay >0.5 — if it drops, the network is too small to fit the value function). Monitor `clip_fraction` — should decrease from 0.3 if the policy is updating more conservatively.
+**Falsification criterion**: If `explained_variance` drops below 0.3 or val Sharpe is below 0.55 at 750k steps, the network is too small to represent a useful allocation policy and capacity is not the constraint.

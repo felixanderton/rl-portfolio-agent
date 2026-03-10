@@ -179,3 +179,19 @@ Peak: 0.4983 at step 1.0M.
 **ClearML task ID**: b465a5eb82524cf4971a1bcba02c095c
 
 **Status**: Complete
+
+---
+
+## 2026-03-10 — H8: Reduce policy network capacity ([64,64] -> [32,32])
+
+**Hypothesis**: The [64,64] network has sufficient capacity to memorise specific 2000–2014 return sequences across ~50 repetitions of the training data, producing train Sharpe ~4–5. A 5-asset allocation policy only needs to learn a soft ranking of assets — a low-complexity function well within [32,32] (~4k parameters). Halving capacity limits memorisation without disrupting the gradient dynamics that drive H4's late-training surge.
+
+**Changes**: Pass `policy_kwargs=dict(net_arch=[32, 32])` to the PPO constructor in `src/train.py`. No other changes.
+
+**Expected effect**: Train Sharpe drops toward ~1.5–2. Val Sharpe holds at or near 0.6444 (H4 baseline). Faster training (~2x per step vs [64,64]).
+
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost=0.001, net_arch=[32,32]`
+
+**Baseline**: val Sharpe 0.6444 (H4, ClearML task 06032dcd5f1947db86a11aa2450aa620)
+
+**Status**: Running
