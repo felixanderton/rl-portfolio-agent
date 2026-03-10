@@ -157,6 +157,14 @@ class PortfolioEnv(gymnasium.Env):
         self._A: float = 0.0  # EMA of returns
         self._B: float = 0.0  # EMA of squared returns
 
+    @property
+    def transaction_cost(self) -> float:
+        return self._transaction_cost
+
+    @transaction_cost.setter
+    def transaction_cost(self, value: float) -> None:
+        self._transaction_cost = value
+
     # ------------------------------------------------------------------
     # Public Gymnasium interface
     # ------------------------------------------------------------------
