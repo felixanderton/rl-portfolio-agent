@@ -147,3 +147,19 @@ Val Sharpe by checkpoint:
 **ClearML task ID**: 06032dcd5f1947db86a11aa2450aa620
 
 **Status**: Complete
+
+---
+
+## 2026-03-10 — H5: L2 weight decay on PPO actor to reduce policy overfitting
+
+**Hypothesis**: The policy network has no weight regularisation and is free to memorise training-period patterns. H4 showed a train/val Sharpe gap of ~4–5 vs 0.65. Adding L2 weight decay (AdamW) directly penalises large activations encoding training-specific patterns, which should close the train/val gap and hold or improve val Sharpe.
+
+**Changes**: Pass `optimizer_kwargs=dict(weight_decay=1e-4)` inside `policy_kwargs` in the PPO constructor in `src/train.py`. No other changes.
+
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost=0.001, weight_decay=1e-4`
+
+**Baseline**: val Sharpe 0.6444 (H4, ClearML task 06032dcd5f1947db86a11aa2450aa620)
+
+**Expected effect**: Train Sharpe drops from ~4–5 toward ~1.5; val Sharpe holds at or near 0.6444, potentially improving ~5–8%.
+
+**Status**: Running

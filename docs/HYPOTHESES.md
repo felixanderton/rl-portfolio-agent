@@ -60,7 +60,7 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 ---
 
 ## H5 — L2 weight decay on the PPO actor to reduce policy overfitting
-**Status**: `[ ]`
+**Status**: `[~]`
 **Hypothesis**: The policy network has no weight regularisation — it is free to memorise training-period patterns with arbitrarily large weights. Adding L2 weight decay to the Adam optimiser used by SB3's MlpPolicy directly penalises large activations that encode training-specific patterns. The offline RL literature shows weight decay is the single most impactful individual regulariser on actor generalisation, reducing train/val performance gaps without destabilising training (unlike entropy coefficient increases, which H2 showed are harmful here).
 **Change**: In `src/train.py`, pass `optimizer_kwargs=dict(weight_decay=1e-4)` inside `policy_kwargs` in the PPO constructor. This switches SB3 from Adam to AdamW, applying L2 decay to all policy parameters. No other changes.
 **Expected effect**: Train Sharpe drops from ~4–5 toward ~1.5; val Sharpe holds at or near 0.6444 (H4 baseline), potentially improving ~5–8% based on the 6% average improvement reported across RL regularisation ablations.
