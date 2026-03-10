@@ -118,6 +118,33 @@ class RunConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Transaction cost curriculum callback
+# ---------------------------------------------------------------------------
+
+
+class TxCostCurriculumCallback(BaseCallback):
+    """
+    Ramps transaction_cost on all training envs from _TC_MIN to TRANSACTION_COST
+    over the full run using a quadratic schedule. Lets the policy learn basic
+    allocation before being penalised for excessive turnover.
+    """
+
+    _TC_MIN: float = 0.0002
+
+    def __init__(self, total_timesteps: int, verbose: int = 0) -> None:
+        super().__init__(verbose=verbose)
+        self._total_timesteps = total_timesteps
+
+    @override
+    def _on_step(self) -> bool:
+        progress = min(self.num_timesteps / self._total_timesteps, 1.0)
+        tc = self._TC_MIN + (TRANSACTION_COST - self._TC_MIN) * (progress**2)
+        for monitor in self.training_env.envs:  # type: ignore[attr-defined]
+            monitor.env.transaction_cost = tc  # type: ignore[attr-defined]
+        return True
+
+
+# ---------------------------------------------------------------------------
 # Custom training callback
 # ---------------------------------------------------------------------------
 
@@ -540,13 +567,14 @@ def _train_one(
         task=task,
         eval_freq=CHECKPOINT_FREQ,
     )
+    curriculum_cb = TxCostCurriculumCallback(total_timesteps=TOTAL_TIMESTEPS)
 
     # ------------------------------------------------------------------
     # 4. Train
     # ------------------------------------------------------------------
     model.learn(
         total_timesteps=TOTAL_TIMESTEPS,
-        callback=[checkpoint_cb, training_cb, val_cb],
+        callback=[checkpoint_cb, training_cb, val_cb, curriculum_cb],
         tb_log_name="run",
         reset_num_timesteps=True,
         progress_bar=True,
