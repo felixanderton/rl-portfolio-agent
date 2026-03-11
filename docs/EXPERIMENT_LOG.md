@@ -245,3 +245,21 @@ Peak: 0.4576 at step 300,000.
 **Conclusion**: Disproven. Block bootstrap destroyed the late-training surge that H4 and H6 relied on. The falsification criterion (val Sharpe < 0.60 at 1M steps) was triggered at 0.4354. The pattern mirrors H9 (episode length cap): the bootstrap disrupts the temporal continuity the differential Sharpe EMA depends on. Swapping features/prices on 50% of resets means EMA accumulators are perpetually calibrated to a different data sequence on each bootstrap episode, preventing stable gradient signal from accumulating. The late-training surge (950k+ acceleration) was completely absent — the curve peaked early at 300k then steadily degraded. Block bootstrap is not a viable regulariser for this reward formulation.
 
 **Status**: Complete
+
+---
+
+## 2026-03-11 — H10: Extended training with H6 warm start (1.5M -> 3M effective steps)
+
+**Hypothesis**: H6 and H4 both showed a clear late-training surge starting around 950k steps, and the val Sharpe curve was still oscillating upward at 1.5M rather than plateauing. The policy likely has not exhausted its learning capacity. Warm-starting from H6's best checkpoint (val Sharpe 0.7056) and training for a further 1.5M steps under the same H6 protocol should allow the late-training trend to continue.
+
+**Changes**:
+- `train.py`: Set `WARM_START_PATH = "/app/runs/warm_start/best_model"` to load the H6 best model.
+- `modal_train.py`: Download the H6 best model artifact from ClearML (task ID `40f1afcadac442e2b78a0b40f6f72f01`) to `/app/runs/warm_start/` before calling `main()`.
+
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost_curriculum=0.0002→0.001, warm_start=H6_best (ClearML task 40f1afcadac442e2b78a0b40f6f72f01)`
+
+**Baseline**: val Sharpe 0.7056 (H6, ClearML task 40f1afcadac442e2b78a0b40f6f72f01)
+
+**Expected effect**: Val Sharpe exceeds 0.7056 within the first 500k steps and climbs toward 0.75–0.80 by end of training.
+
+**Status**: In Progress
