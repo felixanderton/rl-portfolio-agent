@@ -262,4 +262,18 @@ Peak: 0.4576 at step 300,000.
 
 **Expected effect**: Val Sharpe exceeds 0.7056 within the first 500k steps and climbs toward 0.75–0.80 by end of training.
 
-**Status**: In Progress
+**Results**: Final val Sharpe 0.7669 (post-training evaluation). Val Sharpe by checkpoint:
+- 50k: 0.6935, 100k: 0.7203, 150k: 0.7285, 200k: 0.7303, 250k: 0.7243
+- 300k: 0.7149, 350k: 0.7392, 400k: 0.7258, 450k: 0.7332, 500k: 0.7806
+- 550k: 0.7818, 600k: 0.8105, 650k: 0.7511, 700k: 0.7182, 750k: 0.7108
+- 800k: 0.7136, 850k: 0.6850, 900k: 0.7110, 950k: 0.7885, 1.0M: 0.8062
+- 1.05M: 0.8130, 1.1M: 0.7914, 1.15M: 0.7474, 1.2M: 0.6936, 1.25M: 0.7123
+- 1.3M: 0.7279, 1.35M: 0.7432, 1.4M: 0.7570, 1.45M: 0.6763, 1.5M: 0.7374
+
+Peak: 0.8130 at step 1,050,000.
+
+**vs Baseline**: better by 0.0613 (+8.7% vs H6 baseline of 0.7056). New best result.
+
+**Conclusion**: Confirmed. Warm start from H6 checkpoint immediately reproduced H6-level performance (0.6935 at 50k steps) then climbed further. Two surge phases: 500k–600k reaching 0.8105, and 950k–1.05M reaching 0.8130. Falsification criterion cleared at 500k (0.7806 > 0.72). The policy had not reached its ceiling at 1.5M steps — additional training budget under the same H6 protocol continues to improve val Sharpe. H10 is the new confirmed baseline at 0.7669. Further training runs (H10 warm-started again) may push higher, though the volatile 0.69–0.81 range in the second half suggests the policy is near a plateau.
+
+**Status**: Complete
