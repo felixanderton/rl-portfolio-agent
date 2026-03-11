@@ -86,10 +86,12 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 ---
 
 ## H7 — Block bootstrap episode augmentation to prevent training-trajectory memorisation
-**Status**: `[~]`
+**Status**: `[x]`
 **Hypothesis**: By 1M steps the policy has seen every trajectory in the 3750-row training window many times. Circular block bootstrap resampling generates synthetic episodes by stitching together contiguous blocks from the original data (block size ~80% of training length), preserving autocorrelation structure while preventing exact trajectory memorisation. Alternating every 10 episodes between real and bootstrapped data acts as explicit overfitting regularisation — the primary driver of out-of-sample Sharpe improvement in Soleymani & Mahootchi 2025.
 **Change**: In `src/train.py`, add a `BlockBootstrapEnv` wrapper that, on every `reset()`, optionally replaces `self._features` and `self._prices` with a bootstrapped resample (circular block bootstrap, `block_size = 0.8 * T`). Alternate between real and bootstrapped episodes with probability 0.5.
 **Expected effect**: Train Sharpe drops from ~4–5 toward 1–2. Val Sharpe holds or improves above H4's 0.6444, as the policy learns allocations that generalise across data perturbations.
 **Diagnostic**: Monitor `policy/sharpe` (train) for sustained reduction. Val Sharpe should not degrade — if it drops below 0.55 early, block size is too small and is destroying the temporal structure the policy relies on.
 **Falsification criterion**: If val Sharpe at 1.5M steps is below 0.60, bootstrap augmentation has harmed generalisation rather than helping — likely because synthetic episodes do not preserve the return autocorrelation the policy relies on.
+**Result**: Final val Sharpe 0.2969. Peak 0.4576 at step 300,000. Curve degraded steadily after 300k — no late-training surge.
+**Conclusion**: Disproven. Block bootstrap destroyed the late-training surge. Falsification criterion triggered at 1M steps (0.4354 < 0.60). Same root cause as H9: disrupts the temporal continuity the differential Sharpe EMA depends on. Not a viable regulariser for this reward formulation.
 **Note**: Source — Soleymani & Mahootchi, 2025. "Regret-Optimized Portfolio Enhancement through Deep Reinforcement Learning and Future Looking Rewards." arXiv:2502.02619.
