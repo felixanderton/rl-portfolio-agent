@@ -27,6 +27,8 @@ from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
+import pandas as pd
+
 from baselines import evaluate_portfolio
 from data import TICKERS, load_data
 from environment import PortfolioEnv
@@ -71,6 +73,19 @@ BEST_MODEL_DIR: Path = _RUNS_DIR / "best_model"
 
 # ClearML project name — must match the project created by ml-setup
 CLEARML_PROJECT: str = "rl-portfolio-agent"
+
+_VAL_EVENTS: list[tuple[str, str]] = [
+    ("2015-China-selloff", "2015-08-24"),
+    ("2016-US-election", "2016-11-08"),
+    ("2018-Q4-crash", "2018-10-01"),
+]
+
+_VAL_REGIMES: dict[str, tuple[str, str]] = {
+    "Bull 2015–2016": ("2015-02-01", "2015-07-31"),
+    "China selloff": ("2015-08-01", "2016-01-31"),
+    "Trump rally": ("2016-11-09", "2017-12-31"),
+    "Q4 2018 crash": ("2018-10-01", "2018-12-31"),
+}
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -371,10 +386,196 @@ def _run_validation_sharpe(
     return float(evaluate_portfolio(prices_arr, weights_arr)["sharpe_ratio"])
 
 
+def _plot_event_zoom(
+    weights_arr: npt.NDArray[np.float64],
+    prices_arr: npt.NDArray[np.float64],
+    episode_dates: pd.DatetimeIndex,
+    tickers: list[str],
+    task: Task,
+    final_step: int,
+) -> None:
+    cl = task.get_logger()
+    cmap = plt.colormaps["tab10"]
+    colors = [cmap(i) for i in range(len(tickers))]
+
+    log_rets = np.log(prices_arr[1:] / prices_arr[:-1])
+    port_rets = np.sum(weights_arr[1:] * log_rets, axis=1)
+    ew_rets = np.sum(
+        np.full_like(weights_arr[1:], 1.0 / len(tickers)) * log_rets, axis=1
+    )
+
+    # Strip anchor row — weights_arr[0] is equal-weight placeholder, not a real decision.
+    # After stripping, weights_real[i] aligns with episode_dates[i] and port_rets[i]
+    # is the return earned from episode_dates[i] to episode_dates[i+1].
+    weights_real = weights_arr[1:]
+    dates_real = episode_dates[1:]
+
+    for event_label, center_date in _VAL_EVENTS:
+        center_ts = pd.Timestamp(center_date)
+        if center_ts < dates_real[0] or center_ts > dates_real[-1]:
+            continue
+
+        center_idx = int(dates_real.searchsorted(center_ts))
+        lo = max(0, center_idx - 30)
+        hi = min(len(dates_real) - 1, center_idx + 30)
+
+        w_window = weights_real[lo : hi + 1]
+        dates_window = dates_real[lo : hi + 1]
+
+        # port_rets[lo:hi] covers the returns from dates_real[lo] to dates_real[hi],
+        # giving hi-lo values. Prepending 1.0 anchors cumulative value at dates_real[lo].
+        port_window = port_rets[lo:hi]
+        ew_window = ew_rets[lo:hi]
+
+        agent_cum = np.concatenate([[1.0], np.exp(np.cumsum(port_window))])
+        ew_cum = np.concatenate([[1.0], np.exp(np.cumsum(ew_window))])
+
+        fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=(10, 6))
+
+        ax_top.stackplot(
+            dates_window,
+            w_window.T,
+            labels=tickers,
+            colors=colors,
+            alpha=0.85,
+        )
+        ax_top.set_ylim(0, 1)
+        ax_top.set_ylabel("Weight")
+        ax_top.set_title(f"Event zoom: {event_label}")
+        ax_top.legend(loc="upper right", fontsize=7, ncol=len(tickers))
+
+        ax_bot.plot(dates_window, agent_cum, label="Agent")
+        ax_bot.plot(dates_window, ew_cum, label="Equal weight", linestyle="--")
+        ax_bot.axhline(1.0, color="grey", linewidth=0.8, linestyle=":")
+        ax_bot.set_ylabel("Cumulative value")
+        ax_bot.legend(fontsize=8)
+
+        fig.tight_layout()
+        cl.report_matplotlib_figure(
+            title="event_zoom",
+            series=event_label,
+            figure=fig,
+            iteration=final_step,
+        )
+        plt.close(fig)
+
+
+def _plot_regime_allocations(
+    weights_arr: npt.NDArray[np.float64],
+    episode_dates: pd.DatetimeIndex,
+    tickers: list[str],
+    task: Task,
+    final_step: int,
+) -> None:
+    cl = task.get_logger()
+
+    # Strip anchor row — weights_arr[0] is equal-weight placeholder, not a real decision.
+    weights_real = weights_arr[1:]
+    dates_real = episode_dates[1:]
+
+    regime_means: dict[str, npt.NDArray[np.float64]] = {}
+    for regime_label, (start, end) in _VAL_REGIMES.items():
+        mask = (dates_real >= pd.Timestamp(start)) & (dates_real <= pd.Timestamp(end))
+        if not mask.any():
+            continue
+        sliced = weights_real[mask]
+        regime_means[regime_label] = sliced.mean(axis=0)
+
+    if not regime_means:
+        return
+
+    n_regimes = len(regime_means)
+    n_assets = len(tickers)
+    x = np.arange(n_regimes)
+    width = 0.8 / n_assets
+
+    fig, ax = plt.subplots(figsize=(max(8, n_regimes * 2), 5))
+    for i, ticker in enumerate(tickers):
+        vals = [regime_means[r][i] for r in regime_means]
+        ax.bar(x + i * width, vals, width, label=ticker)
+
+    ax.set_xticks(x + width * (n_assets - 1) / 2)
+    ax.set_xticklabels(list(regime_means.keys()), rotation=15, ha="right")
+    ax.set_ylabel("Mean weight")
+    ax.set_ylim(0, 1)
+    ax.set_title("Mean allocation by market regime")
+    ax.legend(fontsize=8, ncol=n_assets)
+    fig.tight_layout()
+    cl.report_matplotlib_figure(
+        title="validation_plots",
+        series="regime_allocations",
+        figure=fig,
+        iteration=final_step,
+    )
+    plt.close(fig)
+
+
+def _plot_turnover_timeline(
+    weights_arr: npt.NDArray[np.float64],
+    prices_arr: npt.NDArray[np.float64],
+    episode_dates: pd.DatetimeIndex,
+    task: Task,
+    final_step: int,
+) -> None:
+    cl = task.get_logger()
+
+    turnover = np.abs(np.diff(weights_arr, axis=0)).sum(axis=1)  # shape (T-1,)
+
+    log_rets = np.log(prices_arr[1:] / prices_arr[:-1])
+    port_rets = np.sum(weights_arr[1:] * log_rets, axis=1)
+    cum_value = np.exp(np.cumsum(port_rets))
+
+    # turnover and cum_value are length T-1; align with episode_dates[1:]
+    dates_ret = episode_dates[1 : 1 + len(cum_value)]
+    if len(dates_ret) == 0:
+        return
+
+    fig, ax_left = plt.subplots(figsize=(14, 4))
+    ax_right = ax_left.twinx()
+
+    ax_left.plot(
+        dates_ret, cum_value, color="steelblue", linewidth=1.5, label="Portfolio value"
+    )
+    ax_left.set_ylabel("Cumulative value")
+
+    ax_right.fill_between(
+        dates_ret, turnover, alpha=0.3, color="sandybrown", label="Turnover"
+    )
+    ax_right.set_ylabel("Daily turnover (L1)")
+
+    for event_label, center_date in _VAL_EVENTS:
+        center_ts = pd.Timestamp(center_date)
+        if dates_ret[0] <= center_ts <= dates_ret[-1]:
+            ax_left.axvline(center_ts, color="grey", linestyle=":", linewidth=0.9)
+            ax_left.text(
+                center_ts,
+                float(cum_value.max()),
+                event_label,
+                rotation=90,
+                va="top",
+                fontsize=7,
+                color="grey",
+            )
+
+    lines_left, labels_left = ax_left.get_legend_handles_labels()
+    lines_right, labels_right = ax_right.get_legend_handles_labels()
+    ax_left.legend(lines_left + lines_right, labels_left + labels_right, fontsize=8)
+    ax_left.set_title("Cumulative portfolio value and daily turnover")
+    fig.tight_layout()
+    cl.report_matplotlib_figure(
+        title="validation_plots",
+        series="turnover_timeline",
+        figure=fig,
+        iteration=final_step,
+    )
+    plt.close(fig)
+
+
 def run_validation(
     model: PPO,
     val_features: FloatArray,
     val_prices: FloatArray,
+    val_dates: pd.DatetimeIndex,
     task: Task,
 ) -> dict[str, float]:
     """
@@ -386,6 +587,9 @@ def run_validation(
     if len(weights_arr) < 2:
         logger.warning("Validation episode was too short.")
         return {}
+
+    window = 20
+    episode_dates: pd.DatetimeIndex = val_dates[window : window + len(weights_arr)]
 
     metrics = evaluate_portfolio(prices_arr, weights_arr)
     cl = task.get_logger()
@@ -458,6 +662,15 @@ def run_validation(
     )
     plt.close(fig)
 
+    # --- Event-zoom plots ---
+    _plot_event_zoom(weights_arr, prices_arr, episode_dates, TICKERS, task, final_step)
+
+    # --- Regime allocation bar chart ---
+    _plot_regime_allocations(weights_arr, episode_dates, TICKERS, task, final_step)
+
+    # --- Turnover + cumulative value dual-axis ---
+    _plot_turnover_timeline(weights_arr, prices_arr, episode_dates, task, final_step)
+
     return metrics
 
 
@@ -472,6 +685,7 @@ def _train_one(
     train_prices: FloatArray,
     val_features: FloatArray,
     val_prices: FloatArray,
+    val_dates: pd.DatetimeIndex,
 ) -> tuple[PPO, float]:
     """
     Train a PPO agent for one hyperparameter combination.
@@ -583,7 +797,7 @@ def _train_one(
     # ------------------------------------------------------------------
     # 5. Full post-training validation — logs all metrics + plots
     # ------------------------------------------------------------------
-    metrics = run_validation(model, val_features, val_prices, task)
+    metrics = run_validation(model, val_features, val_prices, val_dates, task)
     val_sharpe = float(metrics.get("sharpe_ratio", 0.0))
     logger.info(f"  {cfg.run_name}  val Sharpe = {val_sharpe:.4f}")
 
@@ -622,6 +836,7 @@ def main() -> None:
     train_prices: FloatArray = data["train_prices"]
     val_features: FloatArray = data["val"]
     val_prices: FloatArray = data["val_prices"]
+    val_dates: pd.DatetimeIndex = data["val_dates"]
 
     # ------------------------------------------------------------------
     # 2. Build config from module-level constants
@@ -634,7 +849,7 @@ def main() -> None:
     # 3. Train
     # ------------------------------------------------------------------
     model, val_sharpe = _train_one(
-        cfg, train_features, train_prices, val_features, val_prices
+        cfg, train_features, train_prices, val_features, val_prices, val_dates
     )
 
     logger.info(
