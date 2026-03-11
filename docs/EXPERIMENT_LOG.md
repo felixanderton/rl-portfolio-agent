@@ -230,4 +230,18 @@ Peak checkpoint: 0.6928 at step 1,350,000.
 
 **Expected effect**: Train Sharpe drops from ~4–5 toward 1–2. Val Sharpe holds or improves above H6's 0.7056, as the policy learns allocations that generalise across data perturbations.
 
-**Status**: In Progress
+**Results**: Final val Sharpe 0.2969 (post-training evaluation). Val Sharpe by checkpoint:
+- 50k: 0.4023, 100k: 0.4170, 150k: 0.4246, 200k: 0.4321, 250k: 0.4238
+- 300k: 0.4576, 350k: 0.4508, 400k: 0.4302, 450k: 0.4331, 500k: 0.4297
+- 550k: 0.4101, 600k: 0.4175, 650k: 0.4235, 700k: 0.4408, 750k: 0.4079
+- 800k: 0.4394, 850k: 0.4129, 900k: 0.4187, 950k: 0.4065, 1.0M: 0.4354
+- 1.05M: 0.4501, 1.1M: 0.4127, 1.15M: 0.3949, 1.2M: 0.3992, 1.25M: 0.3936
+- 1.3M: 0.3929, 1.35M: 0.3923, 1.4M: 0.3789, 1.45M: 0.3433, 1.5M: 0.3313
+
+Peak: 0.4576 at step 300,000.
+
+**vs Baseline**: worse by 0.4087 (-57.9% vs H6 baseline of 0.7056)
+
+**Conclusion**: Disproven. Block bootstrap destroyed the late-training surge that H4 and H6 relied on. The falsification criterion (val Sharpe < 0.60 at 1M steps) was triggered at 0.4354. The pattern mirrors H9 (episode length cap): the bootstrap disrupts the temporal continuity the differential Sharpe EMA depends on. Swapping features/prices on 50% of resets means EMA accumulators are perpetually calibrated to a different data sequence on each bootstrap episode, preventing stable gradient signal from accumulating. The late-training surge (950k+ acceleration) was completely absent — the curve peaked early at 300k then steadily degraded. Block bootstrap is not a viable regulariser for this reward formulation.
+
+**Status**: Complete
