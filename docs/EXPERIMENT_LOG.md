@@ -213,3 +213,21 @@ Peak checkpoint: 0.6928 at step 1,350,000.
 **ClearML task ID**: 40f1afcadac442e2b78a0b40f6f72f01
 
 **Status**: Complete
+
+---
+
+## 2026-03-11 — H7: Block bootstrap episode augmentation to prevent training-trajectory memorisation
+
+**Hypothesis**: By 1M steps the policy has seen every trajectory in the 3750-row training window many times. Circular block bootstrap resampling generates synthetic episodes by stitching together contiguous blocks from the original data (block size ~80% of training length = ~3000 rows), preserving autocorrelation structure while preventing exact trajectory memorisation. Alternating every reset between real and bootstrapped data (50% probability each) acts as explicit overfitting regularisation.
+
+**Changes**:
+- `environment.py`: Add `BlockBootstrapEnv(gymnasium.Wrapper)` class that on 50% of resets replaces the underlying env's features/prices with a circular block-bootstrapped resample.
+- `train.py`: Add `BLOCK_BOOTSTRAP_FRACTION = 0.8` constant. Modify `_make_env` to wrap `PortfolioEnv` with `BlockBootstrapEnv`.
+
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost_curriculum=0.0002→0.001, block_bootstrap_fraction=0.8, bootstrap_prob=0.5`
+
+**Baseline**: val Sharpe 0.7056 (H6, ClearML task 40f1afcadac442e2b78a0b40f6f72f01)
+
+**Expected effect**: Train Sharpe drops from ~4–5 toward 1–2. Val Sharpe holds or improves above H6's 0.7056, as the policy learns allocations that generalise across data perturbations.
+
+**Status**: In Progress

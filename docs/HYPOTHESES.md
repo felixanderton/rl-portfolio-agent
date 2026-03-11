@@ -86,7 +86,7 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 ---
 
 ## H7 — Block bootstrap episode augmentation to prevent training-trajectory memorisation
-**Status**: `[ ]`
+**Status**: `[~]`
 **Hypothesis**: By 1M steps the policy has seen every trajectory in the 3750-row training window many times. Circular block bootstrap resampling generates synthetic episodes by stitching together contiguous blocks from the original data (block size ~80% of training length), preserving autocorrelation structure while preventing exact trajectory memorisation. Alternating every 10 episodes between real and bootstrapped data acts as explicit overfitting regularisation — the primary driver of out-of-sample Sharpe improvement in Soleymani & Mahootchi 2025.
 **Change**: In `src/train.py`, add a `BlockBootstrapEnv` wrapper that, on every `reset()`, optionally replaces `self._features` and `self._prices` with a bootstrapped resample (circular block bootstrap, `block_size = 0.8 * T`). Alternate between real and bootstrapped episodes with probability 0.5.
 **Expected effect**: Train Sharpe drops from ~4–5 toward 1–2. Val Sharpe holds or improves above H4's 0.6444, as the policy learns allocations that generalise across data perturbations.
