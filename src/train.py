@@ -80,6 +80,12 @@ _VAL_EVENTS: list[tuple[str, str]] = [
     ("2018-Q4-crash", "2018-10-01"),
 ]
 
+_TRAIN_EVENTS: list[tuple[str, str]] = [
+    ("Train-sample-A", "2003-06-01"),
+    ("Train-sample-B", "2008-09-01"),
+    ("Train-sample-C", "2012-01-01"),
+]
+
 _VAL_REGIMES: dict[str, tuple[str, str]] = {
     "Bull 2015–2016": ("2015-02-01", "2015-07-31"),
     "China selloff": ("2015-08-01", "2016-01-31"),
@@ -306,6 +312,7 @@ class PeriodicValCallback(BaseCallback):
         val_features: FloatArray,
         val_prices: FloatArray,
         task: Task,
+        best_model_path: str,
         eval_freq: int = CHECKPOINT_FREQ,
         verbose: int = 0,
     ) -> None:
@@ -313,7 +320,9 @@ class PeriodicValCallback(BaseCallback):
         self._val_features = val_features
         self._val_prices = val_prices
         self._task = task
+        self._best_model_path = best_model_path
         self._eval_freq = eval_freq
+        self._best_sharpe: float = -float("inf")
 
     @override
     def _on_step(self) -> bool:
@@ -327,9 +336,16 @@ class PeriodicValCallback(BaseCallback):
                 value=val_sharpe,
                 iteration=self.num_timesteps,
             )
-            logger.info(
-                f"  [step {self.num_timesteps:>7}]  val Sharpe = {val_sharpe:.4f}"
-            )
+            if val_sharpe > self._best_sharpe:
+                self._best_sharpe = val_sharpe
+                self.model.save(self._best_model_path)  # type: ignore[union-attr]
+                logger.info(
+                    f"  [step {self.num_timesteps:>7}]  val Sharpe = {val_sharpe:.4f}  *** new best — checkpoint saved"
+                )
+            else:
+                logger.info(
+                    f"  [step {self.num_timesteps:>7}]  val Sharpe = {val_sharpe:.4f}"
+                )
         return True
 
 
@@ -393,6 +409,8 @@ def _plot_event_zoom(
     tickers: list[str],
     task: Task,
     final_step: int,
+    events: list[tuple[str, str]] = _VAL_EVENTS,
+    title: str = "event_zoom",
 ) -> None:
     cl = task.get_logger()
     cmap = plt.colormaps["tab10"]
@@ -410,7 +428,7 @@ def _plot_event_zoom(
     weights_real = weights_arr[1:]
     dates_real = episode_dates[1:]
 
-    for event_label, center_date in _VAL_EVENTS:
+    for event_label, center_date in events:
         center_ts = pd.Timestamp(center_date)
         if center_ts < dates_real[0] or center_ts > dates_real[-1]:
             continue
@@ -452,7 +470,7 @@ def _plot_event_zoom(
 
         fig.tight_layout()
         cl.report_matplotlib_figure(
-            title="event_zoom",
+            title=title,
             series=event_label,
             figure=fig,
             iteration=final_step,
@@ -683,6 +701,7 @@ def _train_one(
     cfg: RunConfig,
     train_features: FloatArray,
     train_prices: FloatArray,
+    train_dates: pd.DatetimeIndex,
     val_features: FloatArray,
     val_prices: FloatArray,
     val_dates: pd.DatetimeIndex,
@@ -775,10 +794,12 @@ def _train_one(
         verbose=0,
     )
     training_cb = TrainingCallback(task=task, verbose=0)
+    best_checkpoint_path = str(BEST_MODEL_DIR / "best_checkpoint")
     val_cb = PeriodicValCallback(
         val_features=val_features,
         val_prices=val_prices,
         task=task,
+        best_model_path=best_checkpoint_path,
         eval_freq=CHECKPOINT_FREQ,
     )
     curriculum_cb = TxCostCurriculumCallback(total_timesteps=TOTAL_TIMESTEPS)
@@ -795,11 +816,38 @@ def _train_one(
     )
 
     # ------------------------------------------------------------------
-    # 5. Full post-training validation — logs all metrics + plots
+    # 5. Load best checkpoint if it improved on the final model
+    # ------------------------------------------------------------------
+    best_checkpoint_file = Path(best_checkpoint_path + ".zip")
+    if best_checkpoint_file.exists() and val_cb._best_sharpe > -float("inf"):
+        model = PPO.load(best_checkpoint_path)
+        logger.info(
+            f"  Loaded best checkpoint (val Sharpe {val_cb._best_sharpe:.4f}) for final evaluation"
+        )
+
+    # ------------------------------------------------------------------
+    # 6. Full post-training validation — logs all metrics + plots
     # ------------------------------------------------------------------
     metrics = run_validation(model, val_features, val_prices, val_dates, task)
     val_sharpe = float(metrics.get("sharpe_ratio", 0.0))
     logger.info(f"  {cfg.run_name}  val Sharpe = {val_sharpe:.4f}")
+
+    # Training event zoom — same plot as validation to compare in-sample vs out-of-sample behaviour
+    train_weights_arr, train_prices_arr = _rollout(model, train_features, train_prices)
+    window = 20
+    train_episode_dates: pd.DatetimeIndex = train_dates[
+        window : window + len(train_weights_arr)
+    ]
+    _plot_event_zoom(
+        train_weights_arr,
+        train_prices_arr,
+        train_episode_dates,
+        TICKERS,
+        task,
+        len(train_weights_arr),
+        events=_TRAIN_EVENTS,
+        title="train_event_zoom",
+    )
 
     # Save and upload model artifact on the same task — no separate task needed
     BEST_MODEL_DIR.mkdir(parents=True, exist_ok=True)
@@ -834,6 +882,7 @@ def main() -> None:
 
     train_features: FloatArray = data["train"]
     train_prices: FloatArray = data["train_prices"]
+    train_dates: pd.DatetimeIndex = data["train_dates"]
     val_features: FloatArray = data["val"]
     val_prices: FloatArray = data["val_prices"]
     val_dates: pd.DatetimeIndex = data["val_dates"]
@@ -849,7 +898,13 @@ def main() -> None:
     # 3. Train
     # ------------------------------------------------------------------
     model, val_sharpe = _train_one(
-        cfg, train_features, train_prices, val_features, val_prices, val_dates
+        cfg,
+        train_features,
+        train_prices,
+        train_dates,
+        val_features,
+        val_prices,
+        val_dates,
     )
 
     logger.info(
