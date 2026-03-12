@@ -91,6 +91,7 @@ class PortfolioEnv(gymnasium.Env):
         transaction_cost: float = 0.001,
         eta: float = 0.01,
         obs_noise_sigma: float = 0.0,
+        concentration_penalty_lambda: float = 0.0,
     ) -> None:
         """
         Parameters
@@ -129,6 +130,7 @@ class PortfolioEnv(gymnasium.Env):
         self._transaction_cost = transaction_cost
         self._eta = eta
         self._obs_noise_sigma = obs_noise_sigma
+        self._concentration_penalty_lambda = concentration_penalty_lambda
 
         self._T: int = features.shape[0]
 
@@ -358,9 +360,12 @@ class PortfolioEnv(gymnasium.Env):
         differential_sharpe: float = numerator / denom
 
         # ------------------------------------------------------------------
-        # 6. Net reward = differential Sharpe - transaction cost
+        # 6. Net reward = differential Sharpe - transaction cost - concentration penalty
         # ------------------------------------------------------------------
-        reward: float = differential_sharpe - cost
+        concentration_penalty: float = self._concentration_penalty_lambda * float(
+            np.sum(new_weights**2)
+        )
+        reward: float = differential_sharpe - cost - concentration_penalty
 
         assert not np.isnan(
             reward

@@ -270,6 +270,32 @@ Peak: 0.4576 at step 300,000.
 
 ---
 
+## 2026-03-12 — H13: Portfolio concentration penalty (HHI) to reduce memorisation-driven overfit
+
+**Hypothesis**: The train/val Sharpe gap (~7 vs ~0.77) is driven by the policy learning extremely concentrated positions that happen to be correct for memorised training trajectories but do not generalise. Adding a portfolio concentration penalty `-lambda * sum(w_i^2)` (negative HHI term) to the training reward penalises single-asset dominance in reward space. Reward-space regularisation (H6 TC curriculum, +9.5%) is the only class that has worked without disrupting the late-training surge. This penalty operates in the same space.
+
+**Changes**: Added `concentration_penalty_lambda` parameter to `PortfolioEnv`. Training envs constructed with `CONCENTRATION_LAMBDA=0.01`; val and rollout envs use `0.0` so the penalty does not distort evaluation metrics.
+
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost_curriculum=0.0002→0.001, concentration_lambda=0.01, warm_start=none`
+
+**Baseline**: val Sharpe 0.7669 (H10, ClearML task bd3acca5e38a4a6081bf801bed5b1567)
+
+**Expected effect**: Train Sharpe drops from ~7 toward ~2–3. Val Sharpe holds at or above 0.7669. Late-training surge should be preserved since reward-space changes were safe in H6.
+
+**Results**: Best val Sharpe 0.4593 at step 450,000. Final val Sharpe 0.2195 at step 1,500,000. Training duration ~18:45.
+
+Val Sharpe by phase: peaked at 450k (0.4593) then steadily degraded to 0.22 by end of run — no late-training surge.
+
+**vs Baseline**: worse — final val Sharpe 0.2195 vs baseline 0.7669 (-0.5474, -71%). Best val 0.4593 also well below baseline.
+
+**Conclusion**: Disproven. The concentration penalty alone did not prevent overfitting. Val Sharpe peaked at 0.4593 at 450k steps then steadily degraded to 0.22 by end of run — the classic overfit collapse pattern. The penalty suppressed the late-training surge rather than redirecting it: rather than the policy finding generalised positions worth concentrating on, it appears to have been discouraged from concentrating at all while still memorising training trajectories via other mechanisms. Unlike H6 (TC curriculum), which penalised turnover (a clear overfit behaviour), the HHI penalty directly penalises concentration, which is also the mechanism the policy uses to earn high val Sharpe on genuinely good rotations. The penalty cannot distinguish memorisation-driven concentration from skill-driven concentration. Not worth re-running at a lower lambda given the scale of val Sharpe collapse.
+
+**ClearML task ID**: 5af7ff7a9e4948b9ac7bce0f8c18e1ad
+
+**Status**: Complete
+
+---
+
 ## 2026-03-11 — H10: Extended training with H6 warm start (1.5M -> 3M effective steps)
 
 **Hypothesis**: H6 and H4 both showed a clear late-training surge starting around 950k steps, and the val Sharpe curve was still oscillating upward at 1.5M rather than plateauing. The policy likely has not exhausted its learning capacity. Warm-starting from H6's best checkpoint (val Sharpe 0.7056) and training for a further 1.5M steps under the same H6 protocol should allow the late-training trend to continue.

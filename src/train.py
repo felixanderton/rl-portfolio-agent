@@ -29,8 +29,9 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 
 import pandas as pd
 
-from baselines import evaluate_portfolio
+from baselines import equal_weight, evaluate_portfolio
 from data import TICKERS, load_data
+from evaluate import run_agent_on_test
 from environment import PortfolioEnv
 
 # ---------------------------------------------------------------------------
@@ -65,6 +66,11 @@ TRANSACTION_COST: float = 0.001
 # Gaussian noise added to observations during training to prevent memorisation.
 # Val and rollout envs always use sigma=0.0 (clean observations).
 OBS_NOISE_SIGMA: float = 0.05
+
+# Portfolio concentration penalty coefficient (H13). Subtracted from the reward
+# as lambda * sum(w_i^2) to discourage single-asset dominance. Val/rollout envs
+# use 0.0 (the default) so the penalty does not distort evaluation metrics.
+CONCENTRATION_LAMBDA: float = 0.01
 
 # Annualisation factor for Sharpe computation inside the callback
 TRADING_DAYS_PER_YEAR: int = 252
@@ -109,6 +115,7 @@ def _make_env(features: FloatArray, prices: FloatArray, rank: int) -> Monitor:
         prices,
         transaction_cost=TRANSACTION_COST,
         obs_noise_sigma=OBS_NOISE_SIGMA,
+        concentration_penalty_lambda=CONCENTRATION_LAMBDA,
     )
     env.reset(seed=rank)
     return Monitor(env)
@@ -280,7 +287,7 @@ class TrainingCallback(BaseCallback):
         for title, series, value in [
             ("reward", "mean", reward_mean),
             ("reward", "std", reward_std),
-            ("policy", "sharpe", sharpe),
+            ("validation", "train_sharpe", sharpe),
             ("policy", "turnover", turnover),
             ("policy", "weight_entropy", mean_entropy),
             ("costs", "mean_tx_cost_per_step", mean_cost),
@@ -323,6 +330,7 @@ class PeriodicValCallback(BaseCallback):
         task: Task,
         best_model_path: str,
         eval_freq: int = CHECKPOINT_FREQ,
+        initial_best_sharpe: float = -float("inf"),
         verbose: int = 0,
     ) -> None:
         super().__init__(verbose=verbose)
@@ -331,7 +339,7 @@ class PeriodicValCallback(BaseCallback):
         self._task = task
         self._best_model_path = best_model_path
         self._eval_freq = eval_freq
-        self._best_sharpe: float = -float("inf")
+        self._best_sharpe: float = initial_best_sharpe
 
     @override
     def _on_step(self) -> bool:
@@ -714,6 +722,15 @@ def _train_one(
     val_features: FloatArray,
     val_prices: FloatArray,
     val_dates: pd.DatetimeIndex,
+    extra_callbacks: list[BaseCallback] | None = None,
+    resume_steps: int = 0,
+    resume_best_sharpe: float = -float("inf"),
+    clearml_task_id: str | None = None,
+    task_id_out: list[str] | None = None,
+    val_cb_out: list[PeriodicValCallback] | None = None,
+    test_features: FloatArray | None = None,
+    test_prices: FloatArray | None = None,
+    test_dates: pd.DatetimeIndex | None = None,
 ) -> tuple[PPO, float]:
     """
     Train a PPO agent for one hyperparameter combination.
@@ -746,15 +763,26 @@ def _train_one(
     # Each hyperparameter combination gets its own task so runs are
     # independently comparable in the ClearML UI.
     # ------------------------------------------------------------------
-    task = Task.init(
-        project_name=CLEARML_PROJECT,
-        task_name=cfg.run_name,
-        reuse_last_task_id=False,
-    )
+    task: Task
+    if clearml_task_id is not None:
+        task = Task.get_task(task_id=clearml_task_id)
+        task.mark_started(force=True)
+    else:
+        task = Task.init(
+            project_name=CLEARML_PROJECT,
+            task_name=cfg.run_name,
+            reuse_last_task_id=False,
+        )
+    if task_id_out is not None:
+        task_id_out.append(task.id)
     # Log the hyperparameters so they appear in the ClearML HP panel
     task.connect(cfg.model_dump(), name="hyperparameters")
     task.connect(
-        {"obs_noise_sigma": OBS_NOISE_SIGMA, "transaction_cost": TRANSACTION_COST},
+        {
+            "obs_noise_sigma": OBS_NOISE_SIGMA,
+            "transaction_cost": TRANSACTION_COST,
+            "concentration_lambda": CONCENTRATION_LAMBDA,
+        },
         name="env",
     )
 
@@ -814,17 +842,25 @@ def _train_one(
         task=task,
         best_model_path=best_checkpoint_path,
         eval_freq=CHECKPOINT_FREQ,
+        initial_best_sharpe=resume_best_sharpe,
     )
+    if val_cb_out is not None:
+        val_cb_out.append(val_cb)
     curriculum_cb = TxCostCurriculumCallback(total_timesteps=TOTAL_TIMESTEPS)
+
+    callbacks: list[BaseCallback] = [checkpoint_cb, training_cb, val_cb, curriculum_cb]
+    if extra_callbacks:
+        callbacks.extend(extra_callbacks)
 
     # ------------------------------------------------------------------
     # 4. Train
     # ------------------------------------------------------------------
+    is_resume = resume_steps > 0
     model.learn(
-        total_timesteps=TOTAL_TIMESTEPS,
-        callback=[checkpoint_cb, training_cb, val_cb, curriculum_cb],
+        total_timesteps=TOTAL_TIMESTEPS - resume_steps,
+        callback=callbacks,
         tb_log_name="run",
-        reset_num_timesteps=True,
+        reset_num_timesteps=not is_resume,
         progress_bar=True,
     )
 
@@ -871,6 +907,40 @@ def _train_one(
         artifact_object=save_path.with_suffix(".zip"),
     )
 
+    # ------------------------------------------------------------------
+    # 7. Test-set evaluation — runs on the held-out test split
+    # ------------------------------------------------------------------
+    if test_features is not None and test_prices is not None:
+        test_weights, test_price_rows, _ = run_agent_on_test(
+            model, test_features, test_prices
+        )
+        test_metrics = evaluate_portfolio(test_price_rows, test_weights)
+        ew_weights_test: npt.NDArray[np.float64] = equal_weight(test_price_rows)
+        ew_metrics = evaluate_portfolio(test_price_rows, ew_weights_test)
+
+        cl = task.get_logger()
+        final_step = len(test_weights)
+        for key, value in test_metrics.items():
+            if value != float("inf"):
+                cl.report_scalar(
+                    title="test_final",
+                    series=f"agent_{key}",
+                    value=value,
+                    iteration=final_step,
+                )
+        for key, value in ew_metrics.items():
+            if value != float("inf"):
+                cl.report_scalar(
+                    title="test_final",
+                    series=f"ew_{key}",
+                    value=value,
+                    iteration=final_step,
+                )
+
+        test_sharpe = float(test_metrics.get("sharpe_ratio", 0.0))
+        ew_sharpe = float(ew_metrics.get("sharpe_ratio", 0.0))
+        logger.info(f"  Test Sharpe: {test_sharpe:.4f}  (EW baseline: {ew_sharpe:.4f})")
+
     task.close()
     return model, val_sharpe
 
@@ -880,7 +950,14 @@ def _train_one(
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+def main(
+    resume_steps: int = 0,
+    resume_best_sharpe: float = -float("inf"),
+    clearml_task_id: str | None = None,
+    extra_callbacks: list[BaseCallback] | None = None,
+    task_id_out: list[str] | None = None,
+    val_cb_out: list[PeriodicValCallback] | None = None,
+) -> None:
     """
     Train a single PPO agent, evaluate on validation, and save the model.
     """
@@ -899,6 +976,9 @@ def main() -> None:
     val_features: FloatArray = data["val"]
     val_prices: FloatArray = data["val_prices"]
     val_dates: pd.DatetimeIndex = data["val_dates"]
+    test_features: FloatArray = data["test"]
+    test_prices: FloatArray = data["test_prices"]
+    test_dates: pd.DatetimeIndex = data["test_dates"]
 
     # ------------------------------------------------------------------
     # 2. Build config from module-level constants
@@ -918,6 +998,15 @@ def main() -> None:
         val_features,
         val_prices,
         val_dates,
+        extra_callbacks=extra_callbacks,
+        resume_steps=resume_steps,
+        resume_best_sharpe=resume_best_sharpe,
+        clearml_task_id=clearml_task_id,
+        task_id_out=task_id_out,
+        val_cb_out=val_cb_out,
+        test_features=test_features,
+        test_prices=test_prices,
+        test_dates=test_dates,
     )
 
     logger.info(
