@@ -44,7 +44,7 @@ image = (
 )
 
 REPO_URL = "https://github.com/felixanderton/rl-portfolio-agent"
-BRANCH = "hypothesis/H12"
+BRANCH = "hypothesis/H13"
 
 # ClearML task ID for the warm-start model (H6 best model, val Sharpe 0.7056)
 # H10 has no uploaded artifact; H6 is the most recent available checkpoint.
