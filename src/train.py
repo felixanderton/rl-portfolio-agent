@@ -48,7 +48,7 @@ N_ENVS: int = 8
 # Optional path to a saved model to warm-start from (e.g. "best_model/best_model").
 # If set, loads weights + optimizer state instead of initialising from scratch.
 # Set to None to train from random initialisation.
-WARM_START_PATH: str | None = "/app/runs/warm_start/best_model"
+WARM_START_PATH: str | None = None
 
 # How often (in steps) to save a model checkpoint
 CHECKPOINT_FREQ: int = 50_000
