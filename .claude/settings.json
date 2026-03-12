@@ -6,15 +6,12 @@
       "Edit(*)",
       "Write(*)",
       "Glob(*)",
-      "Grep(*)"
+      "Grep(*)",
+      "Bash(git *)"
     ],
     "deny": [
       "Bash(rm *)",
-      "Bash(git push*)",
       "Bash(git reset --hard*)",
-      "Bash(git clean -f*)",
-      "Bash(git restore *)",
-      "Bash(git checkout -- *)",
       "Bash(sudo *)",
       "Bash(kill *)",
       "Bash(pkill *)",

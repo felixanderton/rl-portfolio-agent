@@ -112,7 +112,7 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 ---
 
 ## H13 — Portfolio concentration penalty to reduce memorisation-driven overfit
-**Status**: `[~]`
+**Status**: `[x]`
 **Hypothesis**: The train/val Sharpe gap (~7 vs ~0.77) is driven by the policy learning to take extremely concentrated positions that happen to be correct for memorised training trajectories but don't generalise. H5 (weight decay) and H12 (observation noise) both failed because they interfered with the gradient dynamics of the late-training surge. H6 showed that reward-space regularisation is safe — it produced +9.5% without disrupting the surge. Adding a portfolio concentration penalty (negative HHI term: `-lambda * sum(w_i^2)`) directly penalises the mechanism of overfit rather than the gradients or inputs, and operates in the same reward space that H6 successfully used.
 **Change**: In `PortfolioEnv.step()`, subtract `concentration_penalty_lambda * np.sum(weights**2)` from the reward. Add `CONCENTRATION_LAMBDA` constant to `train.py`. No other changes.
 **Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost_curriculum=0.0002→0.001, concentration_lambda=0.01, warm_start=none`
@@ -120,6 +120,8 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 **Expected effect**: Train Sharpe drops from ~7 toward ~2–3 as the policy is penalised for the concentrated positions it uses to exploit memorised trajectories. Val Sharpe holds at or above 0.7669 — generalised allocation patterns are less concentrated and should be less penalised.
 **Diagnostic**: Monitor `policy/hhi` (log `np.sum(weights**2)` per step) in ClearML — target mean HHI < 0.4 by end of training vs current ~0.8+. Monitor train vs val Sharpe gap for narrowing. The late-training surge pattern (acceleration after ~950k) should be preserved since reward-space changes did not disrupt it in H6.
 **Falsification criterion**: If val Sharpe drops below 0.70 by 750k steps, the penalty is suppressing useful concentrated positions rather than just memorisation-driven ones — try lambda=0.005.
+**Result**: Best val Sharpe 0.4593 at step 450,000. Final val Sharpe 0.2195 at step 1,500,000. Val Sharpe peaked at 450k then steadily degraded — no late-training surge.
+**Conclusion**: Disproven. The HHI penalty suppressed the late-training surge rather than redirecting it. Unlike H6's TC curriculum (which penalised a clear overfit behaviour — excessive turnover), the concentration penalty directly penalises the mechanism the policy also uses to earn genuine val Sharpe. It cannot distinguish memorisation-driven concentration from skill-driven concentration. Val Sharpe collapse (-71% vs baseline) is more severe than H5 (weight decay) or H12 (obs noise). Not worth retrying at lower lambda. ClearML task ID: 5af7ff7a9e4948b9ac7bce0f8c18e1ad.
 
 ---
 
