@@ -287,7 +287,7 @@ class TrainingCallback(BaseCallback):
         for title, series, value in [
             ("reward", "mean", reward_mean),
             ("reward", "std", reward_std),
-            ("policy", "sharpe", sharpe),
+            ("validation", "train_sharpe", sharpe),
             ("policy", "turnover", turnover),
             ("policy", "weight_entropy", mean_entropy),
             ("costs", "mean_tx_cost_per_step", mean_cost),
