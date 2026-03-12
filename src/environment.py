@@ -90,6 +90,7 @@ class PortfolioEnv(gymnasium.Env):
         window: int = 20,
         transaction_cost: float = 0.001,
         eta: float = 0.01,
+        obs_noise_sigma: float = 0.0,
     ) -> None:
         """
         Parameters
@@ -114,6 +115,11 @@ class PortfolioEnv(gymnasium.Env):
             EMA decay rate for the differential Sharpe accumulators A and B.
             Smaller eta gives a longer-memory estimate; larger eta responds
             faster to recent returns. Typical values: 0.01–0.05.
+        obs_noise_sigma:
+            Standard deviation of Gaussian noise added to each observation.
+            Set to 0.0 (default) for clean observations during validation
+            and rollout. Non-zero values during training prevent the policy
+            from memorising exact feature values seen in the training data.
         """
         super().__init__()
 
@@ -122,6 +128,7 @@ class PortfolioEnv(gymnasium.Env):
         self._window = window
         self._transaction_cost = transaction_cost
         self._eta = eta
+        self._obs_noise_sigma = obs_noise_sigma
 
         self._T: int = features.shape[0]
 
@@ -458,6 +465,13 @@ class PortfolioEnv(gymnasium.Env):
         obs: FloatArray = np.concatenate(
             [logret_flat, vol, meanrev, weights, portfolio_vol]
         )
+
+        if self._obs_noise_sigma > 0.0:
+            obs = (
+                obs
+                + self.np_random.standard_normal(obs.shape).astype(np.float32)
+                * self._obs_noise_sigma
+            )
 
         assert not np.isnan(obs).any(), (
             f"NaN detected in observation at t={t}: "

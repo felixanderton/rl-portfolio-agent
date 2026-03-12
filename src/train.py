@@ -62,6 +62,10 @@ ENT_COEF: float = 0.01
 # 0.001 = 10 bps, a realistic proxy for ETF bid-ask spreads.
 TRANSACTION_COST: float = 0.001
 
+# Gaussian noise added to observations during training to prevent memorisation.
+# Val and rollout envs always use sigma=0.0 (clean observations).
+OBS_NOISE_SIGMA: float = 0.05
+
 # Annualisation factor for Sharpe computation inside the callback
 TRADING_DAYS_PER_YEAR: int = 252
 
@@ -100,7 +104,12 @@ _VAL_REGIMES: dict[str, tuple[str, str]] = {
 
 def _make_env(features: FloatArray, prices: FloatArray, rank: int) -> Monitor:
     """Factory for SubprocVecEnv — must be module-level to be picklable."""
-    env = PortfolioEnv(features, prices, transaction_cost=TRANSACTION_COST)
+    env = PortfolioEnv(
+        features,
+        prices,
+        transaction_cost=TRANSACTION_COST,
+        obs_noise_sigma=OBS_NOISE_SIGMA,
+    )
     env.reset(seed=rank)
     return Monitor(env)
 
@@ -744,6 +753,10 @@ def _train_one(
     )
     # Log the hyperparameters so they appear in the ClearML HP panel
     task.connect(cfg.model_dump(), name="hyperparameters")
+    task.connect(
+        {"obs_noise_sigma": OBS_NOISE_SIGMA, "transaction_cost": TRANSACTION_COST},
+        name="env",
+    )
 
     # ------------------------------------------------------------------
     # 1. Build and wrap the training environment

@@ -44,9 +44,10 @@ image = (
 )
 
 REPO_URL = "https://github.com/felixanderton/rl-portfolio-agent"
-BRANCH = "hypothesis/H10"
+BRANCH = "hypothesis/H12"
 
 # ClearML task ID for the warm-start model (H6 best model, val Sharpe 0.7056)
+# H10 has no uploaded artifact; H6 is the most recent available checkpoint.
 WARM_START_TASK_ID = "40f1afcadac442e2b78a0b40f6f72f01"
 WARM_START_ARTIFACT = "best_model"
 WARM_START_DIR = "/app/runs/warm_start"
@@ -71,8 +72,8 @@ def train():
 
     warm_start_dir = Path(WARM_START_DIR)
     warm_start_dir.mkdir(parents=True, exist_ok=True)
-    h6_task = ClearMLTask.get_task(task_id=WARM_START_TASK_ID)
-    artifact_path = h6_task.artifacts[WARM_START_ARTIFACT].get_local_copy()
+    warm_start_task = ClearMLTask.get_task(task_id=WARM_START_TASK_ID)
+    artifact_path = warm_start_task.artifacts[WARM_START_ARTIFACT].get_local_copy()
     shutil.copy(artifact_path, warm_start_dir / "best_model.zip")
 
     sys.path.insert(0, "/app/src")
