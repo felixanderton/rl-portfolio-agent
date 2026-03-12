@@ -112,7 +112,7 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 ---
 
 ## H13 — Portfolio concentration penalty to reduce memorisation-driven overfit
-**Status**: `[ ]`
+**Status**: `[~]`
 **Hypothesis**: The train/val Sharpe gap (~7 vs ~0.77) is driven by the policy learning to take extremely concentrated positions that happen to be correct for memorised training trajectories but don't generalise. H5 (weight decay) and H12 (observation noise) both failed because they interfered with the gradient dynamics of the late-training surge. H6 showed that reward-space regularisation is safe — it produced +9.5% without disrupting the surge. Adding a portfolio concentration penalty (negative HHI term: `-lambda * sum(w_i^2)`) directly penalises the mechanism of overfit rather than the gradients or inputs, and operates in the same reward space that H6 successfully used.
 **Change**: In `PortfolioEnv.step()`, subtract `concentration_penalty_lambda * np.sum(weights**2)` from the reward. Add `CONCENTRATION_LAMBDA` constant to `train.py`. No other changes.
 **Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost_curriculum=0.0002→0.001, concentration_lambda=0.01, warm_start=none`

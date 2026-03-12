@@ -270,6 +270,24 @@ Peak: 0.4576 at step 300,000.
 
 ---
 
+## 2026-03-12 — H13: Portfolio concentration penalty (HHI) to reduce memorisation-driven overfit
+
+**Hypothesis**: The train/val Sharpe gap (~7 vs ~0.77) is driven by the policy learning extremely concentrated positions that happen to be correct for memorised training trajectories but do not generalise. Adding a portfolio concentration penalty `-lambda * sum(w_i^2)` (negative HHI term) to the training reward penalises single-asset dominance in reward space. Reward-space regularisation (H6 TC curriculum, +9.5%) is the only class that has worked without disrupting the late-training surge. This penalty operates in the same space.
+
+**Changes**: Added `concentration_penalty_lambda` parameter to `PortfolioEnv`. Training envs constructed with `CONCENTRATION_LAMBDA=0.01`; val and rollout envs use `0.0` so the penalty does not distort evaluation metrics.
+
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost_curriculum=0.0002→0.001, concentration_lambda=0.01, warm_start=none`
+
+**Baseline**: val Sharpe 0.7669 (H10, ClearML task bd3acca5e38a4a6081bf801bed5b1567)
+
+**Expected effect**: Train Sharpe drops from ~7 toward ~2–3. Val Sharpe holds at or above 0.7669. Late-training surge should be preserved since reward-space changes were safe in H6.
+
+**ClearML task ID**: 555c7e84eeda4702bc760aba4a0e838d
+
+**Status**: Running
+
+---
+
 ## 2026-03-11 — H10: Extended training with H6 warm start (1.5M -> 3M effective steps)
 
 **Hypothesis**: H6 and H4 both showed a clear late-training surge starting around 950k steps, and the val Sharpe curve was still oscillating upward at 1.5M rather than plateauing. The policy likely has not exhausted its learning capacity. Warm-starting from H6's best checkpoint (val Sharpe 0.7056) and training for a further 1.5M steps under the same H6 protocol should allow the late-training trend to continue.
