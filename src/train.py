@@ -66,6 +66,11 @@ TRANSACTION_COST: float = 0.001
 # Val and rollout envs always use sigma=0.0 (clean observations).
 OBS_NOISE_SIGMA: float = 0.05
 
+# Portfolio concentration penalty coefficient (H13). Subtracted from the reward
+# as lambda * sum(w_i^2) to discourage single-asset dominance. Val/rollout envs
+# use 0.0 (the default) so the penalty does not distort evaluation metrics.
+CONCENTRATION_LAMBDA: float = 0.01
+
 # Annualisation factor for Sharpe computation inside the callback
 TRADING_DAYS_PER_YEAR: int = 252
 
@@ -109,6 +114,7 @@ def _make_env(features: FloatArray, prices: FloatArray, rank: int) -> Monitor:
         prices,
         transaction_cost=TRANSACTION_COST,
         obs_noise_sigma=OBS_NOISE_SIGMA,
+        concentration_penalty_lambda=CONCENTRATION_LAMBDA,
     )
     env.reset(seed=rank)
     return Monitor(env)
@@ -754,7 +760,11 @@ def _train_one(
     # Log the hyperparameters so they appear in the ClearML HP panel
     task.connect(cfg.model_dump(), name="hyperparameters")
     task.connect(
-        {"obs_noise_sigma": OBS_NOISE_SIGMA, "transaction_cost": TRANSACTION_COST},
+        {
+            "obs_noise_sigma": OBS_NOISE_SIGMA,
+            "transaction_cost": TRANSACTION_COST,
+            "concentration_lambda": CONCENTRATION_LAMBDA,
+        },
         name="env",
     )
 
