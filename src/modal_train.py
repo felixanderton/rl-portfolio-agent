@@ -61,7 +61,7 @@ image = (
 )
 
 REPO_URL = "https://github.com/felixanderton/rl-portfolio-agent"
-BRANCH = "hypothesis/H13"
+BRANCH = "hypothesis/H14"
 
 # ClearML task ID for the warm-start model (H6 best model, val Sharpe 0.7056)
 # H10 has no uploaded artifact; H6 is the most recent available checkpoint.
@@ -204,18 +204,11 @@ def train() -> None:
         resume_best_sharpe = -float("inf")
         clearml_task_id = None
 
-        # Download warm-start model from ClearML
-        from clearml import Task as ClearMLTask  # noqa: PLC0415
-
-        warm_start_dir = Path(WARM_START_DIR)
-        warm_start_dir.mkdir(parents=True, exist_ok=True)
-        warm_start_task: ClearMLTask = ClearMLTask.get_task(task_id=WARM_START_TASK_ID)
-        artifact_path = warm_start_task.artifacts[WARM_START_ARTIFACT].get_local_copy()
-        shutil.copy(artifact_path, warm_start_dir / "best_model.zip")
-
+        # H14: observation space changed (added momentum features) —
+        # warm-starting from a prior checkpoint is not possible.
         import train as train_mod  # noqa: PLC0415
 
-        train_mod.WARM_START_PATH = str(warm_start_dir / "best_model.zip")
+        train_mod.WARM_START_PATH = None
 
     # ------------------------------------------------------------------
     # Build out-lists and persistence callback

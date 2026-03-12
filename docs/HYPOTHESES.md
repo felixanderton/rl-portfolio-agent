@@ -111,6 +111,18 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 
 ---
 
+## H14 — Cross-sectional momentum features (63-day and 252-day)
+**Status**: `[~]`
+**Hypothesis**: The current feature set (20-day log return, volatility, mean-reversion) operates entirely within a 20-day lookback window. The best-documented anomaly in sector ETF allocation is cross-sectional momentum: sectors that have outperformed over 3–12 month horizons tend to continue outperforming over the next 1–3 months (Jegadeesh & Titman, 1993; sector rotation literature). Without access to this signal the agent cannot learn the primary driver of sector rotation, and no amount of regularisation will overcome a feature ceiling. Adding 63-day (~3M) and 252-day (~12M) cumulative log returns per asset gives the agent the relative performance ranking it needs to implement momentum-based allocation.
+**Change**: In `data.py`, add `_momentum_return(prices, window)` and include `{ticker}_mom63` and `{ticker}_mom252` features in `_build_feature_matrix`, bringing features per asset from 3 to 5 (25 total). In `environment.py`, add `MOM63_OFFSET` and `MOM252_OFFSET` constants, update `N_FEATURES_PER_ASSET = 5`, extend `obs_size`, and concatenate momentum signals into the observation vector. No warm-start possible (observation space changed).
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost_curriculum=0.0002→0.001, concentration_lambda=0.01, warm_start=none`
+**Baseline**: H13 best val Sharpe 0.4593 (honest baseline — no warm-start, 1.5M steps)
+**Expected effect**: Val Sharpe meaningfully above 0.46. The 252-day momentum signal in particular gives the agent the regime information it has been missing — if sector momentum is present in the data, the agent should learn to overweight recent outperformers.
+**Diagnostic**: Monitor `asset_allocation` per ticker in ClearML — if momentum is working, XLK and XLV allocations should increase after strong 12M performance periods. Compare val Sharpe curve shape to H13: a momentum signal should produce a higher and more stable peak rather than an early collapse.
+**Falsification criterion**: If val Sharpe at 450k steps does not exceed H13's 0.4593, the momentum signal is not present at this frequency/universe combination or is being crowded out by noise.
+
+---
+
 ## H13 — Portfolio concentration penalty to reduce memorisation-driven overfit
 **Status**: `[x]`
 **Hypothesis**: The train/val Sharpe gap (~7 vs ~0.77) is driven by the policy learning to take extremely concentrated positions that happen to be correct for memorised training trajectories but don't generalise. H5 (weight decay) and H12 (observation noise) both failed because they interfered with the gradient dynamics of the late-training surge. H6 showed that reward-space regularisation is safe — it produced +9.5% without disrupting the surge. Adding a portfolio concentration penalty (negative HHI term: `-lambda * sum(w_i^2)`) directly penalises the mechanism of overfit rather than the gradients or inputs, and operates in the same reward space that H6 successfully used.
