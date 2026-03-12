@@ -111,6 +111,18 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 
 ---
 
+## H13 — Portfolio concentration penalty to reduce memorisation-driven overfit
+**Status**: `[ ]`
+**Hypothesis**: The train/val Sharpe gap (~7 vs ~0.77) is driven by the policy learning to take extremely concentrated positions that happen to be correct for memorised training trajectories but don't generalise. H5 (weight decay) and H12 (observation noise) both failed because they interfered with the gradient dynamics of the late-training surge. H6 showed that reward-space regularisation is safe — it produced +9.5% without disrupting the surge. Adding a portfolio concentration penalty (negative HHI term: `-lambda * sum(w_i^2)`) directly penalises the mechanism of overfit rather than the gradients or inputs, and operates in the same reward space that H6 successfully used.
+**Change**: In `PortfolioEnv.step()`, subtract `concentration_penalty_lambda * np.sum(weights**2)` from the reward. Add `CONCENTRATION_LAMBDA` constant to `train.py`. No other changes.
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost_curriculum=0.0002→0.001, concentration_lambda=0.01, warm_start=none`
+**Baseline**: val Sharpe 0.7669 (H10, ClearML task bd3acca5e38a4a6081bf801bed5b1567)
+**Expected effect**: Train Sharpe drops from ~7 toward ~2–3 as the policy is penalised for the concentrated positions it uses to exploit memorised trajectories. Val Sharpe holds at or above 0.7669 — generalised allocation patterns are less concentrated and should be less penalised.
+**Diagnostic**: Monitor `policy/hhi` (log `np.sum(weights**2)` per step) in ClearML — target mean HHI < 0.4 by end of training vs current ~0.8+. Monitor train vs val Sharpe gap for narrowing. The late-training surge pattern (acceleration after ~950k) should be preserved since reward-space changes did not disrupt it in H6.
+**Falsification criterion**: If val Sharpe drops below 0.70 by 750k steps, the penalty is suppressing useful concentrated positions rather than just memorisation-driven ones — try lambda=0.005.
+
+---
+
 ## H10 — Extended training with H6 warm start (1.5M → 3M effective steps)
 **Status**: `[x]`
 **Hypothesis**: H6 and H4 both showed a clear late-training surge starting around 950k steps, and the val Sharpe curve was still oscillating upward at 1.5M rather than plateauing. The policy likely has not exhausted its learning capacity — it just ran out of training budget. Warm-starting from H6's best checkpoint (val Sharpe 0.7056) and training for a further 1.5M steps under the same H6 protocol (TC curriculum, same hyperparameters) should allow the late-training trend to continue and push val Sharpe materially above 0.70.
