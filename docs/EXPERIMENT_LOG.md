@@ -116,6 +116,28 @@ Val Sharpe by checkpoint:
 
 ---
 
+## 2026-03-12 — H12: Observation noise to prevent training-trajectory memorisation
+
+**Hypothesis**: The train/val Sharpe gap (~7 vs ~0.77) is too large to be explained by learned skill — it reflects memorisation of specific training trajectories. Adding Gaussian noise (sigma=0.05) to training observations makes exact memorisation impossible, forcing the policy to learn perturbation-robust patterns. Val observations remain clean.
+
+**Changes**: Added `obs_noise_sigma` parameter to `PortfolioEnv`. Training envs constructed with `obs_noise_sigma=0.05`; val and rollout envs with `obs_noise_sigma=0`. Training from scratch (no warm start).
+
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost_curriculum=0.0002→0.001, obs_noise_sigma=0.05`
+
+**Baseline**: val Sharpe 0.7669 (H10)
+
+**Results**: Run terminated at 1.1M steps. Val Sharpe consistently trending downward; train Sharpe increasing steadily throughout.
+
+**vs Baseline**: worse — val Sharpe in decline at termination, not approaching 0.7669 baseline.
+
+**Conclusion**: Disproven. Observation noise at sigma=0.05 did not prevent memorisation — train Sharpe continued rising, indicating the policy adapted around the noise rather than generalising. Val Sharpe decline matches the H7/H5 pattern: input-level perturbation disrupts the differential Sharpe EMA's ability to accumulate a stable gradient signal, blocking the late-training surge. Not worth re-running at lower sigma given the consistent downward val trend at 1.1M steps.
+
+**ClearML task ID**: 2228ead84ce54042ba26278f29b29d10
+
+**Status**: Complete (terminated early — disproven)
+
+---
+
 ## 2026-03-10 — H4: Fix action space bounds + EMA warm-up
 
 **Hypothesis**: Two structural environment bugs were suppressing performance. (1) The action space `Box(0,1)` capped softmax pre-activations, preventing single-asset weights above ~40% and zeroing gradients above 1.0. (2) EMA accumulators `_A` and `_B` reset to 0 on every `env.reset()`, making the differential Sharpe denominator degenerate (~1e-9) for the first 50-100 steps of each episode and poisoning a large fraction of training gradients. Fixing both should unlock concentrated positions and improve gradient quality throughout training.
