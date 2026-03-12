@@ -28,13 +28,28 @@ image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("git")
     .pip_install(
-        "yfinance", "gymnasium", "stable-baselines3[extra]", "torch",
-        "numpy", "pandas", "matplotlib", "seaborn", "tensorboard", "tqdm", "clearml", "pydantic",
+        "yfinance",
+        "gymnasium",
+        "stable-baselines3[extra]",
+        "torch",
+        "numpy",
+        "pandas",
+        "matplotlib",
+        "seaborn",
+        "tensorboard",
+        "tqdm",
+        "clearml",
+        "pydantic",
     )
 )
 
 REPO_URL = "https://github.com/felixanderton/rl-portfolio-agent"
-BRANCH = "hypothesis/H6"
+BRANCH = "hypothesis/H10"
+
+# ClearML task ID for the warm-start model (H6 best model, val Sharpe 0.7056)
+WARM_START_TASK_ID = "40f1afcadac442e2b78a0b40f6f72f01"
+WARM_START_ARTIFACT = "best_model"
+WARM_START_DIR = "/app/runs/warm_start"
 
 
 @app.function(
@@ -47,9 +62,22 @@ BRANCH = "hypothesis/H6"
 def train():
     subprocess.run(["git", "clone", "--branch", BRANCH, REPO_URL, "/app"], check=True)
     os.chdir("/app/src")
+
+    # Download warm-start model from ClearML before training
     import sys
+    import shutil
+    from pathlib import Path
+    from clearml import Task as ClearMLTask
+
+    warm_start_dir = Path(WARM_START_DIR)
+    warm_start_dir.mkdir(parents=True, exist_ok=True)
+    h6_task = ClearMLTask.get_task(task_id=WARM_START_TASK_ID)
+    artifact_path = h6_task.artifacts[WARM_START_ARTIFACT].get_local_copy()
+    shutil.copy(artifact_path, warm_start_dir / "best_model.zip")
+
     sys.path.insert(0, "/app/src")
     from train import main
+
     main()
 
 

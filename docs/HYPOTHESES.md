@@ -95,3 +95,22 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 **Result**: Final val Sharpe 0.2969. Peak 0.4576 at step 300,000. Curve degraded steadily after 300k — no late-training surge.
 **Conclusion**: Disproven. Block bootstrap destroyed the late-training surge. Falsification criterion triggered at 1M steps (0.4354 < 0.60). Same root cause as H9: disrupts the temporal continuity the differential Sharpe EMA depends on. Not a viable regulariser for this reward formulation.
 **Note**: Source — Soleymani & Mahootchi, 2025. "Regret-Optimized Portfolio Enhancement through Deep Reinforcement Learning and Future Looking Rewards." arXiv:2502.02619.
+
+---
+
+## H10 — Extended training with H6 warm start (1.5M → 3M effective steps)
+**Status**: `[x]`
+**Hypothesis**: H6 and H4 both showed a clear late-training surge starting around 950k steps, and the val Sharpe curve was still oscillating upward at 1.5M rather than plateauing. The policy likely has not exhausted its learning capacity — it just ran out of training budget. Warm-starting from H6's best checkpoint (val Sharpe 0.7056) and training for a further 1.5M steps under the same H6 protocol (TC curriculum, same hyperparameters) should allow the late-training trend to continue and push val Sharpe materially above 0.70.
+**Change**: Set `WARM_START_PATH` in `train.py` to load the H6 best model. In `modal_train.py`, download the H6 artifact from ClearML (task ID `40f1afcadac442e2b78a0b40f6f72f01`) before calling `main()`. All other hyperparameters unchanged from H6.
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost_curriculum=0.0002→0.001, warm_start=H6_best`
+**Expected effect**: Val Sharpe exceeds 0.7056 within the first 500k steps (warm-start benefit) and climbs toward 0.75–0.80 by end of training.
+**Diagnostic**: Val Sharpe at 50k steps should be near or above 0.70 (warm-start benefit from H6). A drop below 0.60 at 50k steps would indicate the TC curriculum reset is destabilising the loaded policy.
+**Falsification criterion**: If val Sharpe does not exceed 0.72 by 750k steps, the policy has reached a true local optimum with the current architecture and reward formulation.
+**Result**: Final val Sharpe 0.7669 (post-training evaluation). Peak 0.8130 at step 1,050,000. Val Sharpe by checkpoint:
+- 50k: 0.6935, 100k: 0.7203, 150k: 0.7285, 200k: 0.7303, 250k: 0.7243
+- 300k: 0.7149, 350k: 0.7392, 400k: 0.7258, 450k: 0.7332, 500k: 0.7806
+- 550k: 0.7818, 600k: 0.8105, 650k: 0.7511, 700k: 0.7182, 750k: 0.7108
+- 800k: 0.7136, 850k: 0.6850, 900k: 0.7110, 950k: 0.7885, 1.0M: 0.8062
+- 1.05M: 0.8130, 1.1M: 0.7914, 1.15M: 0.7474, 1.2M: 0.6936, 1.25M: 0.7123
+- 1.3M: 0.7279, 1.35M: 0.7432, 1.4M: 0.7570, 1.45M: 0.6763, 1.5M: 0.7374
+**Conclusion**: Confirmed. New best result — +8.7% vs H6 (0.7056). Warm start benefit immediately visible: 0.6935 at 50k vs H6's 0.38–0.45 range at the same point. Falsification criterion cleared at 500k (0.7806 > 0.72). Two surge phases: 500k–600k (0.78→0.81) and 950k–1.05M (0.79→0.81). Val Sharpe remains volatile in the 0.69–0.81 range throughout — consistent with the policy exploring concentrated positions. H10 is the new confirmed baseline.
