@@ -98,6 +98,19 @@ Status: `[ ]` untested · `[~]` in progress · `[x]` done
 
 ---
 
+## H12 — Observation noise to prevent training-trajectory memorisation
+**Status**: `[x]`
+**Hypothesis**: Diagnostic plots show the agent earning ~40% cumulative return over training windows where equal-weight earns ~5%, while val performance is near equal-weight. This gap is too large to be explained by learned skill — it is memorisation of specific training trajectories. With 8 envs × 1.5M steps across ~3750 training rows, each row is seen ~3200 times; the policy has effectively memorised the exact feature values associated with profitable rotations. Increasing transaction costs cannot close a 40% gap. The most direct fix is to make exact memorisation impossible: adding small Gaussian noise to the observation at each training step forces the agent to learn policies that are robust to perturbations of feature values rather than keyed to specific numbers. Val observations remain clean (noise=0), so any performance improvement reflects genuine generalisation rather than adaptation to noise.
+**Change**: Add a `obs_noise_sigma` parameter to `PortfolioEnv`. When non-zero, add `np.random.normal(0, sigma, obs.shape)` to the observation returned by `_get_obs()` during training. Set `sigma=0.05` (5% of a typical z-score unit). Val and rollout envs are constructed with `obs_noise_sigma=0`. Warm-start from H10 best model.
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost_curriculum=0.0002→0.001, warm_start=none, obs_noise_sigma=0.05`
+**Expected effect**: Train Sharpe drops from ~7 toward ~1–2 as memorised patterns are disrupted. Val Sharpe holds at or above 0.7669 (H10 baseline) — if the previous val performance was partly driven by generalised patterns rather than pure memorisation, noise regularisation should preserve or improve it.
+**Diagnostic**: Compare `train_event_zoom` vs `event_zoom` plots in ClearML — training cumulative value should no longer massively outpace equal-weight. Monitor `policy/sharpe` (train) for reduction and `validation/sharpe_ratio` for stability.
+**Falsification criterion**: If val Sharpe drops below 0.70 by 750k steps, the noise level is destroying useful signal rather than just preventing memorisation. Try sigma=0.01 before abandoning.
+**Result**: Run terminated at 1.1M steps. Val Sharpe was consistently trending downward throughout; train Sharpe was increasing steadily — the opposite of the desired effect.
+**Conclusion**: Disproven. Observation noise at sigma=0.05 did not prevent memorisation — it degraded the gradient signal to the point where the policy could not learn useful val-generalising patterns. Train Sharpe continued rising, indicating the policy adapted around the noise rather than being forced to generalise. The val Sharpe decline mirrors H7 (block bootstrap) and H5 (weight decay): input-level perturbation disrupts the differential Sharpe EMA's ability to accumulate a stable signal, preventing the late-training surge. Not worth re-running at a lower sigma given the consistent downward val trend at 1.1M steps. ClearML task ID: 2228ead84ce54042ba26278f29b29d10.
+
+---
+
 ## H10 — Extended training with H6 warm start (1.5M → 3M effective steps)
 **Status**: `[x]`
 **Hypothesis**: H6 and H4 both showed a clear late-training surge starting around 950k steps, and the val Sharpe curve was still oscillating upward at 1.5M rather than plateauing. The policy likely has not exhausted its learning capacity — it just ran out of training budget. Warm-starting from H6's best checkpoint (val Sharpe 0.7056) and training for a further 1.5M steps under the same H6 protocol (TC curriculum, same hyperparameters) should allow the late-training trend to continue and push val Sharpe materially above 0.70.
