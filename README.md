@@ -1,16 +1,32 @@
 # rl-portfolio-agent
 
-A reinforcement learning agent that allocates capital across five US sector ETFs using Proximal Policy Optimisation (PPO). The agent is trained with a Differential Sharpe Ratio reward signal — a dense, differentiable approximation of the Sharpe ratio that provides a risk-adjusted gradient at every timestep rather than waiting until the end of an episode.
+A reinforcement learning agent for dynamic sector ETF allocation, built as a systematic ML research project. The agent uses Proximal Policy Optimisation (PPO) to allocate capital across five US sector ETFs, trained with a Differential Sharpe Ratio reward and evaluated against equal-weight, momentum, and buy-and-hold SPY baselines.
+
+The primary goal was to learn rigorous ML workflows on time-series data: proper experiment tracking, train/val/test discipline, hypothesis-driven iteration, and honest evaluation. Fourteen hypotheses were tested over the course of the project.
 
 ---
 
-## Table of contents
+## Table of Contents
 
+- [Results](#results)
 - [MDP Formulation](#mdp-formulation)
-- [Why Differential Sharpe?](#why-differential-sharpe)
-- [Limitations and Failure Modes](#limitations-and-failure-modes)
+- [Experimental Journey](#experimental-journey)
+- [Infrastructure](#infrastructure)
 - [File Structure](#file-structure)
 - [Installation and Usage](#installation-and-usage)
+
+---
+
+## Results
+
+| Model | Val Sharpe | Test Sharpe | Notes |
+|---|---|---|---|
+| Equal weight baseline | ~0.30 | 0.648 | Benchmark |
+| Momentum baseline | — | 0.727 | 12-month cross-sectional momentum |
+| SPY buy & hold | — | 0.800 | Passive benchmark |
+| H10 (TC curriculum + extended training) | 0.813 (peak) | **0.855** | Selected checkpoint; 95% CI [−0.23, +0.61] vs equal-weight |
+
+**Interpretation:** The H10 agent outperforms all baselines on the held-out 2019–2024 test period (Sharpe 0.855 vs 0.800 for SPY buy-and-hold), with higher annualised returns (+20.9%) and lower max drawdown than equal-weight. The bootstrap confidence interval on the Sharpe difference vs equal-weight is wide and crosses zero, reflecting the limited statistical power of a single 6-year evaluation window — the result is positive but not conclusive. The val Sharpe of 0.81 was achieved with warm-starting across multiple runs; a clean from-scratch run (H13) produced val Sharpe of 0.46, indicating the high val/test numbers depend on accumulated training budget rather than a single training run.
 
 ---
 
@@ -24,19 +40,11 @@ The observation vector has **116 dimensions**, constructed as follows at each ti
 
 | Component | Size | Description |
 |---|---|---|
-| Log-return history | 20 x 5 = 100 | Z-score normalised log returns for each of the 5 assets over the past 20 trading days, in time-major order |
-| Rolling volatility | 5 | 20-day rolling standard deviation of log returns for each asset at time `t`, z-score normalised |
-| Mean-reversion signal | 5 | Z-score of each asset's price relative to its 20-day rolling mean and std: `(P_t - mu) / sigma`, z-score normalised |
+| Log-return history | 20 × 5 = 100 | Z-score normalised log returns for each asset over the past 20 trading days, in time-major order |
+| Rolling volatility | 5 | 20-day rolling standard deviation of log returns, z-score normalised |
+| Mean-reversion signal | 5 | Z-score of price relative to its 20-day rolling mean: `(P_t - mu) / sigma` |
 | Portfolio weights | 5 | Current allocation across the 5 assets |
-| Portfolio volatility | 1 | Standard deviation of the portfolio's daily returns over the 20-day look-back window |
-
-**Why each component:**
-
-- **Log-return history** gives the agent a direct view of recent price dynamics. Log returns are used because they are additive over time and approximately normally distributed for small moves.
-- **Rolling volatility** captures each asset's current risk level so the agent can shift away from high-volatility names during stressed periods.
-- **Mean-reversion signal** provides a stationary, scaled measure of where each asset sits relative to its recent trend, encoding potential mean-reversion opportunities without requiring the agent to learn a normalisation itself.
-- **Portfolio weights** close the feedback loop: the agent must know its current allocation to reason about the cost and direction of any rebalancing.
-- **Portfolio volatility** gives a scalar summary of how much risk the current allocation has been realising, separate from the per-asset volatility signals.
+| Portfolio volatility | 1 | Standard deviation of portfolio daily returns over the 20-day look-back |
 
 ### Action space
 
@@ -44,110 +52,100 @@ The observation vector has **116 dimensions**, constructed as follows at each ti
 Box(low=0.0, high=1.0, shape=(5,), dtype=float32)
 ```
 
-The agent emits a vector of raw logits, one per asset. The environment applies a **softmax transformation** inside `step()` before using them as portfolio weights.
-
-Softmax is preferred over direct weight output for two reasons. First, it guarantees that the weights are non-negative and sum to exactly one at every step, without requiring the agent to learn this constraint through reward shaping. Second, it keeps the action space unconstrained from the policy's perspective — the agent can express any valid weight vector by adjusting the relative magnitudes of its logits, and the gradient of the softmax is well-defined everywhere, which aids stable learning with PPO.
-
-### Transition function
-
-The environment is **deterministic given the data**. Market dynamics are exogenous: at each step the environment simply advances the timestep by one and reads the next row of pre-computed, normalised features from the dataset. There is no stochastic model of price dynamics; the agent's actions influence its portfolio value and EMA accumulators but do not alter the underlying price series. The only source of randomness is the episode start index, which is sampled uniformly from `[window, T-1]` at the beginning of each episode.
+The agent emits raw logits which the environment converts to portfolio weights via softmax, guaranteeing non-negativity and sum-to-one at every step without requiring the agent to learn this constraint.
 
 ### Reward function
 
-The reward at each step is the **Differential Sharpe Ratio** (Moody & Saffell, 1998) minus a proportional transaction cost:
-
 ```
-reward_t = D_t - c * ||w_t - w_{t-1}||_1
+reward_t = DifferentialSharpe(R_t) - c * ||w_t - w_{t-1}||_1
 ```
 
-where `c = 0.001` (10 basis points) and `w_t` are the softmax-normalised weights applied at step `t`.
+where `c` ramps from 0.0002 to 0.001 quadratically over the training run (transaction cost curriculum, H6).
 
-**Derivation of the Differential Sharpe.** The standard Sharpe ratio at time `t` is:
-
-```
-S_t = A_t / sqrt(B_t - A_t^2)
-```
-
-where `A_t` and `B_t` are exponential moving averages of the portfolio return `R_t` and its square:
+**Differential Sharpe Ratio** (Moody & Saffell, 1998) provides a dense, differentiable approximation to the Sharpe ratio at every timestep via EMA accumulators `A_t` (mean return) and `B_t` (mean squared return):
 
 ```
-A_t = A_{t-1} + eta * (R_t - A_{t-1})      [EMA of returns]
-B_t = B_{t-1} + eta * (R_t^2 - B_{t-1})    [EMA of squared returns]
+D_t = (B_{t-1} * delta_A_t  -  0.5 * A_{t-1} * delta_B_t) / (B_{t-1} - A_{t-1}^2)^(3/2)
 ```
 
-with decay parameter `eta` (default `0.01`). The quantity `B_t - A_t^2` is the EMA estimate of the variance of `R`.
+This combines the interpretability of a risk-adjusted objective with the stability of dense rewards — the agent gets a gradient signal at every step, not just at episode end.
 
-The **Differential Sharpe** `D_t` is defined as the gradient of `S_t` with respect to `eta`, evaluated at infinitesimal `eta`:
-
-```
-D_t = dS_t / d(eta)
-    = (B_{t-1} * delta_A_t  -  0.5 * A_{t-1} * delta_B_t)
-      / (B_{t-1} - A_{t-1}^2)^(3/2)
-```
-
-where:
-
-```
-delta_A_t = R_t - A_{t-1}
-delta_B_t = R_t^2 - B_{t-1}
-```
-
-**Intuition.** The numerator rewards steps where the new return increases the estimated mean (the `B_{t-1} * delta_A_t` term) while penalising steps where the new return inflates the estimated variance (the `0.5 * A_{t-1} * delta_B_t` term). The denominator normalises by the current variance estimate raised to the 3/2 power, so the signal is scale-invariant. A small epsilon guard `(1e-8)` is added to the denominator before the power to prevent division by zero when `A` and `B` are near zero early in an episode.
+**Transaction cost curriculum** (H6): ramping `c` from 0.0002 to 0.001 quadratically over the training run allows free early exploration before progressively penalising turnover. This was the only regularisation approach that consistently improved val Sharpe.
 
 ---
 
-## Why Differential Sharpe?
+## Experimental Journey
 
-The choice of reward function has a direct effect on what the agent learns to optimise. The alternatives are:
+Fourteen hypotheses were tested systematically. The key findings:
 
-**Raw portfolio return.** Rewards each step's portfolio return directly. The problem is that this gives no penalty for variance: an agent maximising raw return will concentrate the portfolio in the highest-expected-return asset regardless of the associated risk, producing a policy that is volatile and difficult to execute in practice.
+### The overfitting problem
 
-**End-of-episode Sharpe.** Compute the full Sharpe ratio of the episode's return series and assign it as a terminal reward. This is sparse: the agent receives a gradient signal only at the final step of each episode, which makes credit assignment across hundreds of timesteps unreliable and training unstable. It also means the agent receives no feedback during the episode about whether individual allocation decisions are contributing to or detracting from the risk-adjusted objective.
+By H4, the agent was achieving training Sharpe ratios of 4–7 while val Sharpe stagnated around 0.5–0.7. This train/val gap — larger than any other project I've seen documented — became the central problem.
 
-**Risk-adjusted return (e.g. Sortino).** Penalises downside variance only. While theoretically appealing, estimating the downside deviation reliably requires a longer history than a typical episode provides. The Sortino denominator is more volatile and harder to differentiate through, and the signal it produces at each step is noisier than the Differential Sharpe for the same episode length.
+The policy was learning to exploit specific trajectories in the training data: taking concentrated positions that happened to be correct for memorised patterns rather than learning generalisable allocation rules. This manifested as extremely high entropy loss collapse (the policy converging to near-deterministic behaviour), high turnover (1.0–1.5 daily L1 weight change), and val Sharpe degrading monotonically after ~450k steps despite training Sharpe continuing to rise.
 
-**Differential Sharpe (chosen).** Provides a dense, differentiable approximation to the Sharpe ratio at every timestep. Because the EMA accumulators `A` and `B` carry information forward across the episode, the agent's reward at step `t` implicitly reflects the entire history of returns since the episode began. This combines the interpretability of a risk-adjusted objective with the stability benefits of a dense reward signal, and it avoids the credit assignment problem of sparse terminal rewards.
+### What regularisation approaches were tried
+
+| Hypothesis | Approach | Outcome |
+|---|---|---|
+| H5 | Weight decay (L2 on policy network) | Val Sharpe −18% — interfered with gradient dynamics |
+| H6 | TC curriculum (ramp transaction cost) | +9.5% — the only successful regulariser |
+| H7 | Block bootstrap episode augmentation | Training destabilised, early termination |
+| H12 | Observation noise (sigma=0.05) | Flat val Sharpe, no improvement |
+| H13 | Portfolio concentration penalty (HHI) | Val Sharpe −35% — suppressed skill alongside memorisation |
+
+The pattern: regularisers that operate in the reward space (H6) can safely constrain behaviour without disrupting policy gradient dynamics. Regularisers that operate in weight space (H5) or input space (H12) tend to interfere with the gradient updates that produce the late-training val Sharpe surge.
+
+The concentration penalty (H13) failed for a specific reason: concentrated positions are *both* the mechanism of overfitting *and* the mechanism of genuine skill in a 5-asset universe. A penalty that discourages concentration cannot distinguish between the two.
+
+### The feature ceiling
+
+The more important finding is that the features themselves may be the binding constraint. The original feature set (20-day log returns, volatility, mean-reversion) operates entirely within a 20-day lookback. The primary documented driver of sector ETF performance — cross-sectional price momentum at 3–12 month horizons — is invisible to this feature set.
+
+The training period (2000–2014) and validation period (2015–2018) also exhibit regime differences that price features cannot bridge: the Trump rally (2016–17) and the beginning of the rate-hiking cycle (2017–18) were driven by expectations of sector-specific policy changes and macroeconomic shifts, none of which appear in 20-day price windows.
+
+H14 adds 63-day and 252-day cumulative log returns to directly test whether medium/long-horizon momentum improves the feature ceiling. It is the only hypothesis that addresses the root cause rather than the symptoms.
+
+### What the numbers actually mean
+
+A val Sharpe above ~0.30 (roughly equal-weight) with a statistically significant bootstrap confidence interval on the test set would be a meaningful result. The H6 number of 0.71 is interesting but not trustworthy without a clean test-set evaluation. If H14 achieves val Sharpe of 0.5+ with a positive test-set result, that would be a genuine finding attributable to the momentum features.
 
 ---
 
-## Limitations and Failure Modes
+## Infrastructure
 
-### Overfitting to the training regime
+The project uses production-grade ML infrastructure throughout:
 
-The feature normalisation statistics (mean and standard deviation per feature column) and the hyperparameter grid are computed on and tuned to the 2000-2015 training period. This period includes the 2008 financial crisis but not the low-volatility, low-interest-rate environment of 2016-2019 or the COVID-driven volatility of 2020. A regime change that shifts the distribution of returns, volatilities, or cross-asset correlations outside the range seen during training may cause the agent's learned policy to produce poor allocations even if the policy was well-calibrated on the training set.
-
-### EMA warm-up
-
-At the start of each episode, the EMA accumulators `A` and `B` are reset to zero. Because the EMA has not yet accumulated enough history, the variance estimate `B - A^2` is very small and the denominator of the Differential Sharpe is dominated by the epsilon guard `(1e-8)`. As a result, rewards in approximately the first 50 steps of each episode do not accurately reflect the Sharpe ratio the EMA is converging toward. The policy learns correct behaviour for later steps in an episode but may behave inconsistently near episode starts.
-
-### Z-score normalised returns in reward
-
-The reward is computed using the z-score normalised log returns stored in the feature array, not the raw log returns. The EMA accumulators `A` and `B` therefore operate in standardised units rather than in true return units. The resulting Differential Sharpe value is not directly comparable to a Sharpe ratio computed from raw returns, and its magnitude is not interpretable as a standard annualised Sharpe. It is useful as a relative training signal but should not be read as an absolute risk-adjusted performance number.
-
-### Lookback window of 20 days
-
-The observation vector contains only 20 days of return history. The agent cannot directly observe trends or regime shifts that unfold over months or quarters. A structural change — for example, a sustained rise in cross-sector correlation during a market stress event — will only influence the agent's behaviour once it propagates into the 20-day window. Long-duration mean reversion, momentum, or macro regime signals are not representable in the current state space.
-
-### Transaction cost model
-
-The 0.001 (10 bps) per-unit flat cost is a simple first-order proxy for trading friction. Real execution costs for ETFs involve bid-ask spreads, market impact, and borrow costs, all of which grow non-linearly with trade size. A large rebalancing trade in an illiquid market can move the price against the trader, meaning the actual cost is higher than the flat-rate model predicts. The current reward signal therefore understates the true cost of high-turnover policies.
-
-### Five-asset universe
-
-The portfolio is restricted to five US sector ETFs (XLK, XLE, XLF, XLV, XLI). These are all domestic equity sectors and are therefore highly correlated during systemic risk events such as the 2020 COVID crash or the 2008 financial crisis. In those episodes, all five assets fell simultaneously, leaving the agent with no diversification-based escape: any allocation across the five will realise similar drawdowns. The agent cannot allocate to bonds, gold, international equities, or cash, which limits its ability to manage tail risk.
+- **ClearML** for experiment tracking — all hyperparameters, metrics, plots, and model artifacts are logged automatically. The full history of 14 hypothesis runs is available in the project dashboard.
+- **Modal** for cloud training — each hypothesis runs on a 16-core cloud instance with 32 GB RAM. Checkpoints are persisted to a Modal Volume so preempted runs auto-resume from the last checkpoint.
+- **Systematic hypothesis testing** — each change is a named hypothesis with a written prediction, falsification criterion, and result logged to `docs/HYPOTHESES.md` and `docs/EXPERIMENT_LOG.md`.
+- **Proper data splits** — train (2000–2015), val (2015–2019), test (2019–2025). Normalisation statistics computed on train only. Test set was held out until automatic test evaluation was added to the pipeline in H13; it has not been used for any model selection decision.
+- **Bootstrap CI** — `evaluate.py` computes a 95% bootstrap confidence interval on the Sharpe difference between the PPO agent and equal-weight baseline, enabling statistical claims rather than point estimates.
 
 ---
 
 ## File Structure
 
-| File | Description |
-|---|---|
-| `data.py` | Downloads adjusted close prices via yfinance, engineers features (log return, rolling volatility, mean-reversion signal), normalises using training statistics only, and returns train/val/test splits |
-| `environment.py` | Custom Gymnasium environment implementing the MDP: observation construction, softmax action normalisation, Differential Sharpe reward computation, and transaction cost penalty |
-| `baselines.py` | Three benchmark strategies (equal weight, cross-sectional momentum, buy-and-hold SPY) and a shared `evaluate_portfolio` function computing annualised return, volatility, Sharpe, max drawdown, and Calmar ratio |
-| `train.py` | PPO training loop with grid search over learning rate, rollout length, and entropy coefficient; TensorBoard logging; checkpoint saving; best-model selection by validation Sharpe |
-| `evaluate.py` | Loads the saved best model and runs it deterministically on the test split; compares metrics against the three baselines |
-| `ablation.py` | Ablation study runner for evaluating the contribution of individual observation components and reward choices |
+```
+src/
+  data.py           Downloads prices, engineers features (log return, vol, mean-reversion,
+                    63/252-day momentum), normalises on train stats, returns splits
+  environment.py    Gymnasium env: observation construction, softmax actions,
+                    differential Sharpe reward, TC penalty, concentration penalty
+  train.py          PPO training loop with TC curriculum, periodic val evaluation,
+                    ClearML logging, checkpoint saving, test-set evaluation on completion
+  evaluate.py       Full test-set evaluation: metrics table, bootstrap CI, equity curves,
+                    rolling Sharpe, weight heatmap
+  baselines.py      Equal-weight, momentum, buy-and-hold SPY strategies + evaluate_portfolio
+  modal_train.py    Modal cloud training: Volume checkpoint persistence, SIGTERM handler,
+                    auto-resume on preemption, warm-start from ClearML artifacts
+  ablation.py       Ablation study runner
+
+docs/
+  HYPOTHESES.md     All 14 hypotheses: prediction, result, conclusion
+  EXPERIMENT_LOG.md Tabular log of every training run
+  ARCHITECTURE.md   Key design decisions and tradeoffs
+```
 
 ---
 
@@ -155,42 +153,40 @@ The portfolio is restricted to five US sector ETFs (XLK, XLE, XLF, XLV, XLI). Th
 
 **Requirements:** Python 3.12+
 
-### Install dependencies
-
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Train
+### Train locally
 
 ```bash
-python train.py
+python src/train.py
 ```
 
-This runs a grid search over 4 hyperparameter combinations (2 learning rates x 2 rollout lengths). Each combination trains for 500,000 environment steps. The best model by validation Sharpe ratio is saved to `best_model/best_model.zip`. TensorBoard logs are written to `logs/` and periodic checkpoints to `checkpoints/`.
+Trains for 1.5M steps with the TC curriculum. Logs to ClearML, saves checkpoints to `runs/checkpoints/`, best model to `runs/best_model/`. Automatically runs test-set evaluation on the best checkpoint at the end.
 
-To monitor training in real time:
+### Train on Modal (cloud)
 
 ```bash
-tensorboard --logdir logs/
+.venv/bin/modal run src/modal_train.py
 ```
+
+Runs on a 16-core Modal instance. Push your branch to GitHub first — Modal clones fresh from the branch set in `BRANCH`. Checkpoints are persisted to a Modal Volume; re-running after preemption auto-resumes.
 
 ### Evaluate
 
 ```bash
-python evaluate.py
+python src/evaluate.py
 ```
 
-Loads `best_model/best_model.zip` and runs a deterministic episode over the test split (2019-2025). Prints a metrics table comparing the RL agent against the equal-weight, momentum, and buy-and-hold SPY baselines.
+Loads `runs/best_model/best_model.zip` and runs a deterministic episode on the test split (2019–2025). Prints a metrics table with bootstrap CI and saves equity curve, rolling Sharpe, and weight heatmap plots to `runs/plots/`.
 
-### Data split
+### Data splits
 
 | Split | Period | Purpose |
 |---|---|---|
-| Train | 2000-01-01 to 2015-01-01 | Policy learning |
-| Validation | 2015-01-01 to 2019-01-01 | Hyperparameter selection |
-| Test | 2019-01-01 to 2025-01-01 | Final evaluation (held out) |
-
-Normalisation statistics are computed on the training split only and applied to all three splits to prevent data leakage.
+| Train | 2000–2015 | Policy learning |
+| Validation | 2015–2019 | Checkpoint selection during training |
+| Test | 2019–2025 | Final evaluation — held out from all model selection |

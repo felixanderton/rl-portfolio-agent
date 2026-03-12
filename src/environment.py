@@ -68,20 +68,17 @@ class PortfolioEnv(gymnasium.Env):
     # Number of assets the agent allocates across
     N_ASSETS: int = 5
 
-    # Number of features per asset in the feature matrix (logret, vol, meanrev, mom63, mom252)
-    N_FEATURES_PER_ASSET: int = 5
+    # Number of features per asset in the feature matrix (logret, vol, meanrev)
+    N_FEATURES_PER_ASSET: int = 3
 
     # Column strides within the feature matrix for each per-asset feature.
     # data.py lays columns out as:
-    #   [asset0_logret, asset0_vol, asset0_meanrev, asset0_mom63, asset0_mom252,
-    #    asset1_logret, ...]
-    # So for asset i: logret at i*5+0, vol at i*5+1, meanrev at i*5+2,
-    #                 mom63 at i*5+3, mom252 at i*5+4
+    #   [asset0_logret, asset0_vol, asset0_meanrev,
+    #    asset1_logret, asset1_vol, asset1_meanrev, ...]
+    # So for asset i: logret is at column i*3+0, vol at i*3+1, meanrev at i*3+2
     LOGRET_OFFSET: int = 0
     VOL_OFFSET: int = 1
     MEANREV_OFFSET: int = 2
-    MOM63_OFFSET: int = 3
-    MOM252_OFFSET: int = 4
 
     # Small epsilon to prevent division by zero in the Sharpe denominator
     SHARPE_EPS: float = 1e-8
@@ -138,16 +135,9 @@ class PortfolioEnv(gymnasium.Env):
         self._T: int = features.shape[0]
 
         # Observation size: window log-return history per asset,
-        # plus vol + meanrev + mom63 + mom252 + weights per asset,
-        # plus portfolio vol scalar.
+        # plus vol + meanrev + weights per asset, plus portfolio vol scalar.
         obs_size: int = (
-            window * self.N_ASSETS
-            + self.N_ASSETS  # vol
-            + self.N_ASSETS  # meanrev
-            + self.N_ASSETS  # mom63
-            + self.N_ASSETS  # mom252
-            + self.N_ASSETS  # weights
-            + 1  # portfolio vol
+            window * self.N_ASSETS + self.N_ASSETS + self.N_ASSETS + self.N_ASSETS + 1
         )
 
         self.observation_space: spaces.Box = spaces.Box(
@@ -457,30 +447,12 @@ class PortfolioEnv(gymnasium.Env):
         meanrev: FloatArray = self._features[t, meanrev_cols].astype(np.float32)
 
         # ------------------------------------------------------------------
-        # Component 4: 63-day momentum at the current timestep
-        # ------------------------------------------------------------------
-        mom63_cols: list[int] = [
-            i * self.N_FEATURES_PER_ASSET + self.MOM63_OFFSET
-            for i in range(self.N_ASSETS)
-        ]
-        mom63: FloatArray = self._features[t, mom63_cols].astype(np.float32)
-
-        # ------------------------------------------------------------------
-        # Component 5: 252-day momentum at the current timestep
-        # ------------------------------------------------------------------
-        mom252_cols: list[int] = [
-            i * self.N_FEATURES_PER_ASSET + self.MOM252_OFFSET
-            for i in range(self.N_ASSETS)
-        ]
-        mom252: FloatArray = self._features[t, mom252_cols].astype(np.float32)
-
-        # ------------------------------------------------------------------
-        # Component 6: current portfolio weights
+        # Component 4: current portfolio weights
         # ------------------------------------------------------------------
         weights: FloatArray = self._weights.astype(np.float32)
 
         # ------------------------------------------------------------------
-        # Component 7: current portfolio volatility
+        # Component 5: current portfolio volatility
         #
         # Computed as the standard deviation of the portfolio's daily returns
         # over the look-back window. This gives the agent a scalar measure of
@@ -496,7 +468,7 @@ class PortfolioEnv(gymnasium.Env):
         )  # shape (1,)
 
         obs: FloatArray = np.concatenate(
-            [logret_flat, vol, meanrev, mom63, mom252, weights, portfolio_vol]
+            [logret_flat, vol, meanrev, weights, portfolio_vol]
         )
 
         if self._obs_noise_sigma > 0.0:

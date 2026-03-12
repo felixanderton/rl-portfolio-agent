@@ -65,12 +65,12 @@ TRANSACTION_COST: float = 0.001
 
 # Gaussian noise added to observations during training to prevent memorisation.
 # Val and rollout envs always use sigma=0.0 (clean observations).
-OBS_NOISE_SIGMA: float = 0.05
+OBS_NOISE_SIGMA: float = 0.0
 
 # Portfolio concentration penalty coefficient (H13). Subtracted from the reward
 # as lambda * sum(w_i^2) to discourage single-asset dominance. Val/rollout envs
 # use 0.0 (the default) so the penalty does not distort evaluation metrics.
-CONCENTRATION_LAMBDA: float = 0.01
+CONCENTRATION_LAMBDA: float = 0.0
 
 # Annualisation factor for Sharpe computation inside the callback
 TRADING_DAYS_PER_YEAR: int = 252

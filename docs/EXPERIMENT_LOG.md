@@ -296,6 +296,24 @@ Val Sharpe by phase: peaked at 450k (0.4593) then steadily degraded to 0.22 by e
 
 ---
 
+## 2026-03-12 — H14: Cross-sectional momentum features (63-day and 252-day cumulative log returns)
+
+**Hypothesis**: The current 15-feature state vector contains only short-horizon signals (20-day log returns, rolling volatility, mean-reversion z-scores). Cross-sectional momentum — the relative ranking of medium and long-horizon cumulative returns across assets — is the best-documented anomaly in sector ETF allocation. Adding 63-day and 252-day cumulative log returns per asset (10 new features, total 25) gives the agent the signal it needs to rotate into recent winners over multi-month horizons.
+
+**Changes**: `data.py` and/or `environment.py` updated to compute and append 63-day and 252-day cumulative log return features for each of the 5 assets, expanding the observation vector from 15 to 25 dimensions.
+
+**Hyperparameters**: `lr=1e-4, n_steps=2048, ent_coef=0.01, total_timesteps=1_500_000, n_envs=8, transaction_cost_curriculum=0.0002→0.001, concentration_lambda=0.01, warm_start=none (obs space changed)`
+
+**Baseline**: val Sharpe 0.7669 (H10)
+
+**Results**: Val Sharpe significantly below H10 baseline throughout training. Disproven.
+
+**Conclusion**: Disproven. Adding 63-day and 252-day momentum features did not improve performance. The observation space expansion (116 → 126) and the longer burn-in window (252 rows dropped from the training set) likely made the learning problem harder without providing actionable signal. The momentum features are raw cumulative log returns, not cross-sectionally normalised ranks — the agent may have been unable to extract the relative ranking information the hypothesis was designed to provide. The feature ceiling hypothesis was not validated.
+
+**Status**: Complete (disproven)
+
+---
+
 ## 2026-03-11 — H10: Extended training with H6 warm start (1.5M -> 3M effective steps)
 
 **Hypothesis**: H6 and H4 both showed a clear late-training surge starting around 950k steps, and the val Sharpe curve was still oscillating upward at 1.5M rather than plateauing. The policy likely has not exhausted its learning capacity. Warm-starting from H6's best checkpoint (val Sharpe 0.7056) and training for a further 1.5M steps under the same H6 protocol should allow the late-training trend to continue.
@@ -322,6 +340,21 @@ Peak: 0.8130 at step 1,050,000.
 
 **vs Baseline**: better by 0.0613 (+8.7% vs H6 baseline of 0.7056). New best result.
 
+**Test set results** (ClearML task `bd3acca5e38a4a6081bf801bed5b1567`, best checkpoint at step 1,050,000):
+
+| Strategy | Ann. Return | Ann. Vol | Sharpe | Max DD | Calmar |
+|---|---|---|---|---|---|
+| PPO Agent | +20.90% | 24.45% | **0.8551** | -38.34% | 0.5453 |
+| Equal Weight | +13.96% | 21.54% | 0.6480 | -41.04% | 0.3401 |
+| Momentum | +17.22% | 23.69% | 0.7270 | -34.80% | 0.4949 |
+| SPY Buy & Hold | +15.94% | 19.93% | 0.7996 | -33.72% | 0.4728 |
+
+Bootstrap 95% CI for Sharpe(PPO) − Sharpe(EqualWeight): [−0.23, +0.61] (n=1000). Difference not statistically significant at 5%.
+
 **Conclusion**: Confirmed. Warm start from H6 checkpoint immediately reproduced H6-level performance (0.6935 at 50k steps) then climbed further. Two surge phases: 500k–600k reaching 0.8105, and 950k–1.05M reaching 0.8130. Falsification criterion cleared at 500k (0.7806 > 0.72). The policy had not reached its ceiling at 1.5M steps — additional training budget under the same H6 protocol continues to improve val Sharpe. H10 is the new confirmed baseline at 0.7669. Further training runs (H10 warm-started again) may push higher, though the volatile 0.69–0.81 range in the second half suggests the policy is near a plateau.
+
+Test Sharpe of 0.8551 outperforms all baselines on the held-out 2019–2024 period, though the wide bootstrap CI reflects limited statistical power over a single 6-year window.
+
+**ClearML task ID**: bd3acca5e38a4a6081bf801bed5b1567
 
 **Status**: Complete
