@@ -296,6 +296,33 @@ Val Sharpe by phase: peaked at 450k (0.4593) then steadily degraded to 0.22 by e
 
 ---
 
+## 2026-03-13 — H14: Cross-sectional momentum features (63-day and 252-day cumulative log returns)
+
+**Hypothesis**: The current 15-feature state vector contains only short-horizon signals (20-day log returns, rolling volatility, mean-reversion z-scores). Cross-sectional momentum — the relative ranking of medium and long-horizon cumulative returns across assets — is the best-documented anomaly in sector ETF allocation. Adding 63-day and 252-day cumulative log returns per asset (10 new features, total 25 features × 5 assets = 126-dim obs) gives the agent the signal it needs to rotate into recent winners over multi-month horizons.
+
+**Changes**: `data.py` updated to compute and append mom63 (63-day cumulative log return) and mom252 (252-day cumulative log return) features for each of the 5 assets, expanding obs_size from 116 to 126 (feature_count from 15 to 25). No warm-start possible — observation space changed.
+
+**Hyperparameters**:
+- `lr`: 1e-4
+- `n_steps`: 2048
+- `ent_coef`: 0.01
+- `total_timesteps`: 1_500_000
+- `n_envs`: 8
+- `transaction_cost_curriculum`: 0.0002 → 0.001 (H6 TC curriculum protocol)
+- `concentration_lambda`: 0.01
+- `warm_start`: none (obs space changed 116 → 126)
+- `obs_noise_sigma`: 0.0
+- `obs_size`: 126 (was 116, +10 for 2 momentum signals × 5 assets)
+- `feature_count`: 25 (was 15)
+
+**Baseline**: H13 best val Sharpe 0.4593
+
+**ClearML task ID**: ab45d417b52b454cab1e3d6eaf4dc96f
+
+**Status**: Running
+
+---
+
 ## 2026-03-12 — H14: Cross-sectional momentum features (63-day and 252-day cumulative log returns)
 
 **Hypothesis**: The current 15-feature state vector contains only short-horizon signals (20-day log returns, rolling volatility, mean-reversion z-scores). Cross-sectional momentum — the relative ranking of medium and long-horizon cumulative returns across assets — is the best-documented anomaly in sector ETF allocation. Adding 63-day and 252-day cumulative log returns per asset (10 new features, total 25) gives the agent the signal it needs to rotate into recent winners over multi-month horizons.
